@@ -2,7 +2,7 @@ const express = require('express');
 const { formatDuration, normalizePlayer } = require('../utils/helpers');
 const logger = require('../utils/logger');
 
-const createRouter = ({ gameState, matchmaker, gameEngine }) => {
+const createRouter = ({ gameState, matchmaker, gameEngine, config }) => {
   const router = express.Router();
   const SESSION_STATUSES = gameState.constructor.STATUSES;
 
@@ -21,48 +21,49 @@ const createRouter = ({ gameState, matchmaker, gameEngine }) => {
     });
   });
 
-  router.post('/create-session', (req, res) => {
-    const { player1, player2 } = req.body || {};
+  router.post('/start', (req, res) => {
+    const { players, metadata } = req.body || {};
 
-    if (!player1 || !player2) {
-      return res.status(400).json({ error: 'player1 and player2 payloads are required' });
+    if (!players || !players.X || !players.O) {
+      return res.status(400).json({ error: 'players.X and players.O payloads are required' });
     }
 
-    if (gameState.playerHasActiveSession(player1.id) || gameState.playerHasActiveSession(player2.id)) {
+    if (gameState.playerHasActiveSession(players.X.id) || gameState.playerHasActiveSession(players.O.id)) {
       return res.status(409).json({
         error: 'One or more players already assigned to an active session',
-        player1Session: gameState.getPlayerSession(player1.id),
-        player2Session: gameState.getPlayerSession(player2.id),
+        player1Session: gameState.getPlayerSession(players.X.id),
+        player2Session: gameState.getPlayerSession(players.O.id),
       });
     }
 
     const session = gameState.createSession({
       players: {
         X: {
-          ...normalizePlayer(player1),
+          ...normalizePlayer(players.X),
           symbol: 'X',
-          connected: true,
+          connected: false,
         },
         O: {
-          ...normalizePlayer(player2),
+          ...normalizePlayer(players.O),
           symbol: 'O',
-          connected: true,
+          connected: false,
         },
       },
-      metadata: {
-        source: 'manual-api',
-      },
+      metadata: metadata || { source: 'api' },
     });
 
-    const started = gameEngine.startSession(session.sessionId);
-    logger.info('Manual session created', {
+    gameEngine.startSession(session.sessionId);
+    logger.info('Session created via API', {
       lifecycle: 'session-created',
       sessionId: session.sessionId,
     });
 
+    const joinUrl = `${config.server.url.replace('http', 'ws')}/connect/${session.sessionId}`;
+
     return res.status(201).json({
       sessionId: session.sessionId,
-      gameState: started,
+      joinUrl: joinUrl,
+      status: session.status,
     });
   });
 

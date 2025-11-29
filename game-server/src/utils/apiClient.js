@@ -1,46 +1,33 @@
-const gameConfig = require('../config/gameConfig');
+const axios = require('axios');
 const logger = require('./logger');
 
-class ApiClient {
-  constructor(endpoint) {
-    this.endpoint = endpoint;
-  }
-
-  async reportGameResult(resultPayload) {
-    if (!this.endpoint) {
-      logger.debug('Skipping result report - endpoint missing');
-      return { skipped: true };
+const createApiClient = (config) => {
+  const client = axios.create({
+    baseURL: config.matchmakingServiceUrl,
+    timeout: config.timeout || 5000,
+    headers: {
+      'Content-Type': 'application/json',
     }
+  });
 
-    if (typeof fetch !== 'function') {
-      logger.warn('Global fetch is not available - cannot send result');
-      return { skipped: true };
-    }
-
+  const reportSessionClosed = async (sessionId) => {
     try {
-      const response = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(resultPayload),
-      });
-
-      if (!response.ok) {
-        logger.warn('Result endpoint responded with non-OK status', {
-          status: response.status,
-          statusText: response.statusText,
-        });
-      }
-
-      return { ok: response.ok };
+      const response = await client.post('/session-closed', { sessionId });
+      logger.info('Successfully reported session closure to matchmaking service', { sessionId });
+      return response.data;
     } catch (error) {
-      logger.warn('Failed to send result to external endpoint', {
-        error: error.message,
+      logger.error('Error reporting session closure to matchmaking service', { 
+        sessionId, 
+        error: error.message, 
+        serviceUrl: config.matchmakingServiceUrl 
       });
-      return { error: error.message };
+      throw error;
     }
-  }
-}
+  };
 
-module.exports = new ApiClient(gameConfig.external.resultEndpoint);
+  return {
+    reportSessionClosed,
+  };
+};
+
+module.exports = createApiClient;
