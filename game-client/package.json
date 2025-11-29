@@ -1,0 +1,10 @@
+{
+  "name": "game-client",
+  "version": "1.0.0",
+  "description": "Phase 2 HTML5 Tic-Tac-Toe client",
+  "scripts": {
+    "serve": "npx serve src",
+    "build": "powershell -Command Copy-Item -Recurse -Force src/* dist/",
+    "clean": "powershell -Command Remove-Item -Recurse -Force dist/*; New-Item -ItemType Directory -Path dist | Out-Null"
+  }
+}

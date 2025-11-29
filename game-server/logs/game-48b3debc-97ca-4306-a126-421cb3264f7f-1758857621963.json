@@ -1,0 +1,77 @@
+{
+  "sessionId": "48b3debc-97ca-4306-a126-421cb3264f7f",
+  "writtenAt": "2025-09-26T03:33:41.963Z",
+  "result": {
+    "outcome": "win",
+    "winnerSymbol": "O",
+    "winningLine": [
+      0,
+      4,
+      8
+    ],
+    "completedAt": "2025-09-26T03:33:41.962Z"
+  },
+  "players": {
+    "X": {
+      "id": "b3e1d",
+      "name": "Faithfultennyson",
+      "stake": 0,
+      "socketId": "AOaE4q10wI_QN5j9AAAH",
+      "symbol": "X",
+      "connected": true
+    },
+    "O": {
+      "id": "a",
+      "name": "Alice",
+      "stake": 0,
+      "socketId": "pMOqdWzvuACH9POrAAAL",
+      "symbol": "O",
+      "connected": true
+    }
+  },
+  "moves": [
+    {
+      "index": 2,
+      "symbol": "X",
+      "playerId": "b3e1d",
+      "at": "2025-09-26T03:32:57.690Z"
+    },
+    {
+      "index": 0,
+      "symbol": "O",
+      "playerId": "a",
+      "at": "2025-09-26T03:33:08.610Z"
+    },
+    {
+      "index": 5,
+      "symbol": "X",
+      "playerId": "b3e1d",
+      "at": "2025-09-26T03:33:17.274Z"
+    },
+    {
+      "index": 4,
+      "symbol": "O",
+      "playerId": "a",
+      "at": "2025-09-26T03:33:30.673Z"
+    },
+    {
+      "index": 6,
+      "symbol": "X",
+      "playerId": "b3e1d",
+      "at": "2025-09-26T03:33:34.650Z"
+    },
+    {
+      "index": 8,
+      "symbol": "O",
+      "playerId": "a",
+      "at": "2025-09-26T03:33:41.961Z"
+    }
+  ],
+  "stakes": {
+    "totalStake": 0,
+    "houseCut": 0,
+    "winnerPayout": 0,
+    "currency": "credits"
+  },
+  "metadata": {}
+}

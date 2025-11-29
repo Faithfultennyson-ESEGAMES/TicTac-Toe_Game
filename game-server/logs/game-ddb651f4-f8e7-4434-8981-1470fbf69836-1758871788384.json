@@ -1,0 +1,37 @@
+{
+  "sessionId": "ddb651f4-f8e7-4434-8981-1470fbf69836",
+  "writtenAt": "2025-09-26T07:29:48.384Z",
+  "result": {
+    "outcome": "forfeit",
+    "reason": "turn_timeout",
+    "winnerSymbol": "O",
+    "forfeitedSymbol": "X",
+    "completedAt": "2025-09-26T07:29:48.382Z"
+  },
+  "players": {
+    "X": {
+      "id": "b3e1d",
+      "name": "Faithfultennyson",
+      "stake": 0,
+      "socketId": "w219ESOv4WIWivT7AAAH",
+      "symbol": "X",
+      "connected": true
+    },
+    "O": {
+      "id": "bDSDEFRYTY5476534",
+      "name": "Modupe",
+      "stake": 0,
+      "socketId": "47mwAkgIs6yO3TU9AAAF",
+      "symbol": "O",
+      "connected": true
+    }
+  },
+  "moves": [],
+  "stakes": {
+    "totalStake": 0,
+    "houseCut": 0,
+    "winnerPayout": 0,
+    "currency": "credits"
+  },
+  "metadata": {}
+}

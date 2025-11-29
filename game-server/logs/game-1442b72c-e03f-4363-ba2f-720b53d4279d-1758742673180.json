@@ -1,0 +1,37 @@
+{
+  "sessionId": "1442b72c-e03f-4363-ba2f-720b53d4279d",
+  "writtenAt": "2025-09-24T19:37:53.180Z",
+  "result": {
+    "outcome": "forfeit",
+    "reason": "disconnect_timeout",
+    "winnerSymbol": "O",
+    "forfeitedSymbol": "X",
+    "completedAt": "2025-09-24T19:37:53.179Z"
+  },
+  "players": {
+    "X": {
+      "id": "p32e3r2",
+      "name": "cate",
+      "stake": 0,
+      "socketId": "5AakXEcJzpNr67pPAAAF",
+      "symbol": "X",
+      "connected": false
+    },
+    "O": {
+      "id": "p11243",
+      "name": "Alice",
+      "stake": 0,
+      "socketId": "7ZhbTOA5ZZZ1i-LKAAAH",
+      "symbol": "O",
+      "connected": true
+    }
+  },
+  "moves": [],
+  "stakes": {
+    "totalStake": 0,
+    "houseCut": 0,
+    "winnerPayout": 0,
+    "currency": "credits"
+  },
+  "metadata": {}
+}

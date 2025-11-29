@@ -1,0 +1,37 @@
+{
+  "sessionId": "3a2cc15c-564b-443d-a8fb-efb5752cd723",
+  "writtenAt": "2025-09-24T19:33:04.768Z",
+  "result": {
+    "outcome": "forfeit",
+    "reason": "disconnect_timeout",
+    "winnerSymbol": "X",
+    "forfeitedSymbol": "O",
+    "completedAt": "2025-09-24T19:33:04.768Z"
+  },
+  "players": {
+    "X": {
+      "id": "p1864",
+      "name": "PlayerThatWillDisconnect18",
+      "stake": 0,
+      "socketId": "Cy-BKp-tsSkOa1r0AAAI",
+      "symbol": "X",
+      "connected": false
+    },
+    "O": {
+      "id": "p146353",
+      "name": "PlayerThatWillDisconnect13",
+      "stake": 0,
+      "socketId": "ZKshq-ghqtvgqVcIAAAJ",
+      "symbol": "O",
+      "connected": false
+    }
+  },
+  "moves": [],
+  "stakes": {
+    "totalStake": 0,
+    "houseCut": 0,
+    "winnerPayout": 0,
+    "currency": "credits"
+  },
+  "metadata": {}
+}

@@ -1,0 +1,71 @@
+{
+  "sessionId": "cdae7c86-51bd-4093-a823-7710c463bfba",
+  "writtenAt": "2025-09-26T05:23:11.093Z",
+  "result": {
+    "outcome": "win",
+    "winnerSymbol": "X",
+    "winningLine": [
+      1,
+      4,
+      7
+    ],
+    "completedAt": "2025-09-26T05:23:11.092Z"
+  },
+  "players": {
+    "X": {
+      "id": "bDSDEFRYTY5476534",
+      "name": "Modupe",
+      "stake": 0,
+      "socketId": "2qJAccpGR0JHmqiHAAAJ",
+      "symbol": "X",
+      "connected": true
+    },
+    "O": {
+      "id": "a",
+      "name": "Alice",
+      "stake": 0,
+      "socketId": "5KCMzr5N3BQOz8zDAAAL",
+      "symbol": "O",
+      "connected": true
+    }
+  },
+  "moves": [
+    {
+      "index": 4,
+      "symbol": "X",
+      "playerId": "bDSDEFRYTY5476534",
+      "at": "2025-09-26T05:22:55.094Z"
+    },
+    {
+      "index": 0,
+      "symbol": "O",
+      "playerId": "a",
+      "at": "2025-09-26T05:22:59.404Z"
+    },
+    {
+      "index": 1,
+      "symbol": "X",
+      "playerId": "bDSDEFRYTY5476534",
+      "at": "2025-09-26T05:23:04.405Z"
+    },
+    {
+      "index": 6,
+      "symbol": "O",
+      "playerId": "a",
+      "at": "2025-09-26T05:23:08.045Z"
+    },
+    {
+      "index": 7,
+      "symbol": "X",
+      "playerId": "bDSDEFRYTY5476534",
+      "at": "2025-09-26T05:23:11.092Z"
+    }
+  ],
+  "stakes": {
+    "totalStake": 0,
+    "houseCut": 0,
+    "winnerPayout": 0,
+    "currency": "credits"
+  },
+  "metadata": {}
+}
