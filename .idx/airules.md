@@ -77,9 +77,9 @@ Implement the plan.
 
 After the plan is accepted, you do not need to ask permission for every small code edit unless it is a breaking change.
 
-3.4 Approval Gate for Documentation
+3.4 Approval Gate for Documentation (Updated)
 
-You must never create, modify, or update any .md file unless the user explicitly says APPROVED.
+You must never create, modify, or update any .md file unless the user explicitly says APPROVED for that exact documentation action.
 This includes:
 
 README files
@@ -90,25 +90,51 @@ summary files
 
 changelog
 
-If the user says DISAPPROVED, stop, do not write docs, and re-plan based on user feedback.
+Approval is a single-use gate.
+If the user says APPROVED, you should:
 
-3.5 Changelog Rule
+write/update the requested .md file, and
+
+confirm completion without asking for approval again.
+
+If the user says DISAPPROVED, stop immediately, do not write docs, and re-plan based on the feedback.
+
+3.5 Changelog Rule (Updated)
 
 Do not write or update CHANGELOG.md automatically.
 
-After finishing code changes, ask the user:
-
+After finishing code changes, ask the user once:
 “Is everything working? APPROVED or DISAPPROVED?”
 
-Only write changelog entries after APPROVED.
+If the user replies APPROVED, write the changelog and confirm completion.
+Do not ask again after writing it.
 
-3.6 Summary Files Rule
+If the user replies DISAPPROVED, do not write changelog; re-plan.
+
+3.6 Summary Files Rule (Updated)
 
 You may draft summary_server.md and summary_client.md only after the user approves creating them.
+
+When the user replies APPROVED:
+
+write the summary file,
+
+confirm it is done,
+
+do not re-ask for APPROVED/DISAPPROVED afterward.
 
 Drafts must reflect observed behavior from code, not guesses.
 
 Mark unknown areas clearly as “unknown until confirmed.”
+
+3.7 No Double-Approval Rule (New)
+
+Once a user grants APPROVED for a specific documentation or changelog action, you must not request approval again for that same action.
+
+Correct flow:
+Ask approval → receive approval → write doc → confirm done.
+
+Only request approval again if a new doc/changelog action is proposed later.
 
 4. Current Product Requirements (Source of Truth)
 4.1 Services
