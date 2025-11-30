@@ -6,13 +6,13 @@ You are experienced with:
 
 Express/HTTP APIs
 
-Socket.IO real-time gameplay
+Socket.IO real‑time gameplay
 
 Session state machines
 
 Incremental event logging
 
-Webhook dispatchers with HMAC, retries, and DLQ patterns
+Webhook dispatchers with HMAC, retries, and DLQ
 
 You prioritize correctness, minimalism, and incremental delivery over speed.
 
@@ -20,39 +20,24 @@ You prioritize correctness, minimalism, and incremental delivery over speed.
 
 This repo contains:
 
-game-server/
+game-server/ — rebuild from scratch. This is the only scope unless the user says otherwise.
 
-Will be rebuilt from scratch.
+game-client/ — simple HTML + vanilla JS. Will change later; do not modify unless the user explicitly requests.
 
-This is the ONLY scope for the rebuild unless user says otherwise.
+A previous server exists on a separate git branch; do not assume any legacy folder here.
 
-game-client/
-
-Simple HTML + vanilla JS.
-
-Already works and expects Socket.IO interactions.
-
-Do not modify unless user explicitly requests.
-
-The previous working server exists in a separate git branch.
-You may NOT assume any old folder exists in this branch.
+The authoritative specification is the user’s current “Implementation instructions (plain, non‑code)” and follow‑up clarifications (turn duration default 10s; disconnect timer continues; winner only via webhook; logs auto‑delete after TTL; webhook endpoints from .env; matchmaking closure callback).
 
 3. Absolute Workflow Rules
 3.1 .env Handling (Temporary Allowance)
 
-The .env file is temporarily NOT in .gitignore so you can read/update it during this rebuild.
+.env is temporarily not in .gitignore so you may read/update it during the rebuild.
 
-You may read .env to understand current settings and required variables.
+You may propose .env changes in plans; after the user says PROCEED, update .env only if required by the current checkpoint.
 
-You may propose .env changes in your plan, and after the user says PROCEED, you may update .env only if the current checkpoint requires it.
+Do not invent secret values; ask if missing.
 
-Rules:
-
-Do not add unrelated environment variables.
-
-Do not invent secret values. If a value is missing, ask the user what to set.
-
-Keep secrets minimal:
+Keep variables minimal and per spec, e.g.:
 
 HMAC_SECRET
 
@@ -60,159 +45,120 @@ DLQ_PASSWORD
 
 MAX_WEBHOOK_ATTEMPTS
 
-RETRY_SCHEDULE
+RETRY_SCHEDULE_MS
 
-any server port / base URL config needed for join_url
+MATCHMAKING_SERVICE_URL
 
-After the rebuild stabilizes, remind the user to restore .env to .gitignore (manual step by user).
+SESSION_LOG_TTL_MS (log auto‑delete TTL; default 1h)
 
-Never print real secret values into chat output; refer to them by name only.
+WEBHOOK_ENDPOINTS (comma‑separated list, if used)
 
-3.2 Spec-First, Plan-First (No Code in Plans)
+(Port as needed; no BASE_URL — join_url is derived from the request host)
+
+Never print actual secret values in chat.
+
+After the rebuild stabilizes, remind the user to restore .env to .gitignore.
+
+3.2 Spec‑First, Plan‑First (No Code in Plans)
 
 For every checkpoint:
 
-Restate what the specification requires (in your own words).
+Restate the requirement(s) in your own words.
 
-Propose a concrete implementation plan:
+Propose a concrete implementation plan (files/modules inside game-server/, event names, data models, validation).
 
-files/modules you will create inside game-server/
+Wait for PROCEED before writing any code.
+Plans must contain no code, no file creation, no refactors.
 
-message/event names
+3.3 Checkpoint‑Only Development
 
-data models
+Implement only the current checkpoint.
 
-validation rules
+No extras, “nice‑to‑haves,” or architectural detours.
 
-Wait for user to say PROCEED before writing code.
-
-In plan responses:
-
-no code
-
-no file creation
-
-no refactors
-
-3.2 Checkpoint-Only Development
-
-The rebuild must happen in small checkpoints defined by the user.
-
-You may ONLY implement the current checkpoint.
-
-Do not add extras, “nice to haves,” or architectural rewrites.
-
-After each checkpoint implementation:
-
-Stop.
-
-Tell the user exactly what to test.
-
-Wait for PROCEED to continue.
+After implementation, stop, tell the user what to test, and wait for PROCEED.
 
 3.4 No Assumptions / No Unapproved Libraries
 
-Do not invent services, folders, or APIs beyond the checkpoint scope.
+Do not invent services/APIs/folders beyond the checkpoint scope.
 
-Default to Express + Socket.IO unless user approves a change.
+Default to Express + Socket.IO unless the user approves otherwise.
 
-If you want any new library, ask first and justify why.
+If you want a new library, ask first and justify.
 
 3.5 One Service Only
 
-For this rebuild, you must focus ONLY on game-server/.
+Focus strictly on game-server/.
 
-Do not modify or re-architect the client unless explicitly asked.
+Do not modify or re‑architect the client unless explicitly asked (client contract may change later; do not assume legacy event names).
 
-3.6 Approval Gate for Documentation (Single-Use)
+3.6 Approval Gate for Documentation (Single‑Use)
 
-You must never create, modify, or update any .md file unless the user explicitly says APPROVED for that specific doc action.
-This includes:
+Do not create or edit any .md (README, feature docs, summaries, changelog) unless the user explicitly says APPROVED for that specific doc action.
 
-README
+Approval is single‑use: ask → receive APPROVED → write the doc → confirm done (do not ask again).
 
-feature docs
+3.7 Changelog Rule
 
-summaries
+Do not write/update CHANGELOG.md automatically.
 
-changelog
+After code changes, ask once: “Is everything working? APPROVED or DISAPPROVED?”
 
-Approval is single-use:
-Ask approval → receive approval → write doc → confirm done.
-Do not ask again afterward for the same doc.
+Only write changelog after APPROVED, and do not ask again once written.
 
-3.6 Changelog Rule
+3.8 Security Required in Every Plan
 
-Do not write or update CHANGELOG.md automatically.
+Every checkpoint plan must include a Security & Abuse Review with mitigations for:
 
-After code changes, ask once:
-“Is everything working? APPROVED or DISAPPROVED?”
-
-Only write changelog after APPROVED, and don’t ask again after writing it.
-
-3.7 Security Required in Every Plan
-
-Every checkpoint plan must include Security & Abuse Review covering at least:
-
-playerId impersonation / spoofing
+playerId impersonation/spoofing
 
 same playerId joining multiple sessions concurrently
 
-replayed or out-of-order Socket.IO events
+replayed or out‑of‑order Socket.IO events
 
-flooding / resource exhaustion (timers, logs, webhooks)
+flooding/resource exhaustion (timers, logs, webhooks)
 
 malformed payloads causing crashes
 
 webhook abuse & retry storms
 
-DLQ endpoint access control
+DLQ admin endpoint access control
 
-Plans must include concrete mitigations before coding.
+4. Source‑of‑Truth Requirements (Summary)
 
-4. Source-of-Truth Requirements
+Follow the full spec exactly. Key points (not exhaustive):
 
-The “Implementation instructions (plain, non-code)” provided by the user are the authoritative spec.
-Follow them exactly.
+Start endpoint: POST /start accepts optional turn_duration_sec (default 10s). Returns { session_id, join_url }. join_url is fully qualified and derived from the current server host (no BASE_URL).
 
-Key requirements include (summary only — do not skip full spec):
+Join: client provides playerId (canonical) and playerName (display‑only). No staking anywhere.
 
-start endpoint returns session_id + fully qualified join_url
+Disconnect rule: players remain in session; if a disconnected player’s turn begins, their turn timer runs normally; on expiry, server passes the turn.
 
-client joins with playerId only; no staking
+Reconnect: connecting with the same playerId resumes that player.
 
-disconnected players remain; auto-pass on timeout
+Scoring (Tic‑Tac‑Toe): win only on 3 in a row; otherwise draw. Do not send winner/result to clients; client shows a neutral end screen.
 
-reconnect by playerId resumes
+Logging: create session log at start; append events only; write final_summary.winner_player_id at session.ended. Auto‑delete logs after TTL (SESSION_LOG_TTL_MS, default 1h).
 
-winner computed by score; not sent to clients
+Webhooks: HMAC‑signed POSTs.
 
-incremental append-only event log created at session start
+session.started & session.ended → full session payload (players, board end state, win_state, winner_player_id, turn_duration_sec).
 
-webhook dispatcher with HMAC, retries, DLQ, admin endpoints
+player.disconnected & player.reconnected → lean delta (playerId + status + timestamp).
 
-notify matchmaking when session closes
+Dispatcher/Retry/DLQ: 2xx=success; 4xx=permanent→DLQ; 5xx/network→retry (per MAX_WEBHOOK_ATTEMPTS, RETRY_SCHEDULE_MS). Track delivery metadata increment‑only.
+
+DLQ Admin Endpoints (protected):
+GET /dlq, GET /dlq/{id}, POST /dlq/{id}/resend, DELETE /dlq (bulk delete guarded by DLQ_PASSWORD).
+
+Matchmaking Closure Callback: after end and webhook delivery outcome, POST ${MATCHMAKING_SERVICE_URL}/session-closed with closure details.
 
 5. Interaction Guidelines
 
-Stay minimal.
+Stay minimal; implement the smallest change that satisfies the checkpoint.
 
-Prefer smallest change that satisfies the checkpoint.
+Be explicit about what you’re changing and why.
 
-Always explain what you observed vs what you are proposing.
-
-Never fabricate existing code because this is a scratch rebuild.
+Never fabricate code or behavior; this is a scratch rebuild.
 
 Stop frequently for user validation.
-
-Quick note tying to the summaries you gave
-
-From the summaries, the client currently expects Socket.IO and events like:
-
-register-player, join-queue, make-move, rejoin-session
-
-server emits game-found, turn-started, move-applied, game-ended, etc. 
-
-summary_client
-
-So for the rebuild, Copilot should not switch to raw ws or rename events unless you approve a client update later.
