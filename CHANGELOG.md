@@ -1,3 +1,16 @@
+## 0.4.0 (Session Logging & TTL)
+
+### Features
+
+- **Session Logging:** Implemented a new logging module (`src/logging/session_logger.js`) to record the entire lifecycle of each game session.
+- **Append-Only Event History:** Logs are created at session start and events (e.g., `session.started`, `player.joined`, `move.made`, `session.ended`) are appended in real-time.
+- **Persistent Logs:** Session logs are persisted to disk as individual JSON files in the `game-server/logs/` directory.
+- **Final Summary:** When a game ends, the log is updated with a `final_summary` containing the `win_state` and `winner_player_id`.
+- **Automatic TTL Cleanup:** Log files are automatically deleted from the disk and cleared from memory after a configurable TTL (`SESSION_LOG_TTL_MS`), preventing unbounded disk usage.
+- **Error Isolation:** The logging system is designed to be fault-tolerant; any file system errors are logged as warnings without crashing the game server.
+
+---
+
 ## 0.3.0 (Core Gameplay & State Machine)
 
 ### Features
