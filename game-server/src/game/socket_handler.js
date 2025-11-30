@@ -1,17 +1,33 @@
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 const {
   addOrReconnectPlayer,
   makeMove,
   handleDisconnect,
   passTurn,
-  getSession
+  getSession,
+  endSession,
 } = require('./session');
+const { dispatchEvent } = require('../webhooks/dispatcher');
+
+const MAX_TURNS = parseInt(process.env.MAX_TURNS, 10) || 12;
 
 function initializeSocket(io) {
 
-  // Helper function to start a turn and its timer
-  const startTurn = (session) => {
-    if (session.turnTimerId) {
-      clearTimeout(session.turnTimerId);
+  const startTurn = async (session) => {
+    if (!session || session.status !== 'active') {
+      return;
+    }
+
+    clearTimeout(session.turnTimerId);
+
+    session.turnCount += 1;
+
+    if (session.turnCount > MAX_TURNS) {
+        const payload = await endSession(session.sessionId, 'draw', 'none', null);
+        if (payload) {
+            io.to(session.sessionId).emit('game-ended', payload);
+        }
+        return;
     }
 
     const expiresAt = new Date(Date.now() + session.turnDurationSec * 1000);
@@ -27,7 +43,6 @@ function initializeSocket(io) {
             board: result.session.board, 
             current_turn_player_id: result.nextTurnPlayerId 
         });
-        // Start the next player's turn
         startTurn(result.session);
       }
     }, session.turnDurationSec * 1000);
@@ -48,24 +63,27 @@ function initializeSocket(io) {
           return socket.emit('join-error', { message: result.error });
         }
 
-        socket.join(result.session.sessionId);
+        const session = result.session;
+        socket.join(session.sessionId);
 
         if (result.isReconnect) {
-            io.to(result.session.sessionId).emit('player-reconnected', { playerId });
+            io.to(session.sessionId).emit('player-reconnected', { playerId });
         }
         
         if (result.gameReady) {
-          const session = result.session;
-          // Notify clients that the game is starting
+          if (!result.isReconnect) {
+             dispatchEvent('session.started', session, session.sessionId);
+          }
+
           io.to(session.sessionId).emit('game-found', {
             session_id: session.sessionId,
             players: session.players.map(p => ({ playerId: p.playerId, playerName: p.playerName, symbol: p.symbol })),
             board: session.board,
             turn_duration_sec: session.turnDurationSec,
           });
-          // Start the first turn
           startTurn(session);
         }
+
       } catch (error) {
         console.error(`[Socket Handler] Error on join event:`, error);
         socket.emit('join-error', { message: 'An internal server error occurred.' });
@@ -85,15 +103,12 @@ function initializeSocket(io) {
                 return socket.emit('move-error', { message: result.error });
             }
 
-            const session = getSession(session_id);
-
             if (result.gameEnded) {
-                clearTimeout(session.turnTimerId);
-                io.to(session_id).emit('game-ended', { 
-                    reason: result.reason, 
-                    board: result.board 
-                });
+                if (result.payload) {
+                    io.to(session_id).emit('game-ended', result.payload);
+                }
             } else {
+                const session = getSession(session_id);
                 io.to(session_id).emit('move-applied', { 
                     board: result.board, 
                     current_turn_player_id: result.nextTurnPlayerId 

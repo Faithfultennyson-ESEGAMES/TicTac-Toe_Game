@@ -1,3 +1,4 @@
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 const crypto = require('crypto');
 const { dispatchEvent } = require('../webhooks/dispatcher');
 const { checkForWinner, isBoardFull } = require('./game_logic');
@@ -6,20 +7,66 @@ const sessions = new Map(); // sessionId -> session object
 const activePlayerIds = new Map(); // playerId -> sessionId
 const sessionsBySocket = new Map(); // socketId -> sessionId
 
+// Private function for the final cleanup
+async function _concludeAndCleanupSession(session) {
+    if (!session) return;
+
+    // Dispatch the webhook while the session data is still intact.
+    await dispatchEvent('session.ended', session, session.sessionId);
+
+    // Clean up all global maps to prevent memory leaks and allow players to join new games.
+    for (const player of session.players) {
+        if (player) {
+            activePlayerIds.delete(player.playerId);
+            if (player.socketId) {
+                sessionsBySocket.delete(player.socketId);
+            }
+        }
+    }
+
+    // Finally, remove the session from the main map.
+    sessions.delete(session.sessionId);
+}
+
+
+async function endSession(sessionId, clientReason, webhookWinState, winnerPlayerId) {
+    const session = getSession(sessionId);
+    if (!session || session.status === 'ended') {
+        return null; // Indicate that the session is already ended or not found
+    }
+
+    // 1. Stop any pending turn timers immediately.
+    clearTimeout(session.turnTimerId);
+    session.turnTimerId = null;
+
+    // 2. Set the final state on the session object.
+    session.status = 'ended';
+    session.winState = webhookWinState;
+    session.winnerPlayerId = winnerPlayerId;
+
+    // 3. Asynchronously trigger the final webhook dispatch and cleanup.
+    // We don't wait for this to complete before notifying the client.
+    _concludeAndCleanupSession(session);
+
+    // 4. Return the neutral payload for the client-facing 'game-ended' event.
+    return { reason: clientReason, board: session.board };
+}
+
+
 function createSession(turnDurationSec = 10) {
   const sessionId = crypto.randomUUID();
   const session = {
     sessionId,
-    status: 'pending', // pending -> active -> ended
+    status: 'pending',
     players: [],
     board: Array(9).fill(null),
     turnDurationSec,
     createdAt: new Date().toISOString(),
-    // --- Fields for CP3 ---
     currentTurnPlayerId: null,
     turnTimerId: null,
-    winState: null, // 'win' | 'draw'
+    winState: null, // 'win' | 'draw' | 'none'
     winnerPlayerId: null,
+    turnCount: 0, // New field for MAX_TURNS rule
   };
   sessions.set(sessionId, session);
   return session;
@@ -66,8 +113,8 @@ async function addOrReconnectPlayer(sessionId, playerId, playerName, socketId) {
 
     if (session.players.length === 2) {
       session.status = 'active';
-      session.currentTurnPlayerId = session.players[0].playerId; // 'X' goes first
-      await dispatchEvent('session.started', session, sessionId);
+      session.currentTurnPlayerId = session.players[0].playerId;
+      // The 'session.started' webhook is now sent from socket_handler when the game truly begins.
     }
   }
 
@@ -88,37 +135,26 @@ async function makeMove(sessionId, playerId, position) {
   }
 
   clearTimeout(session.turnTimerId);
+  session.turnTimerId = null;
 
   const player = session.players.find(p => p.playerId === playerId);
   session.board[position] = player.symbol;
 
   const winnerSymbol = checkForWinner(session.board);
-  const boardIsFull = isBoardFull(session.board);
-
-  let gameEnded = false;
-  let endReason = null;
-
   if (winnerSymbol) {
-    gameEnded = true;
-    endReason = 'win';
-    session.status = 'ended';
-    session.winState = 'win';
-    session.winnerPlayerId = session.players.find(p => p.symbol === winnerSymbol).playerId;
-  } else if (boardIsFull) {
-    gameEnded = true;
-    endReason = 'draw';
-    session.status = 'ended';
-    session.winState = 'draw';
+    const winner = session.players.find(p => p.symbol === winnerSymbol);
+    const payload = await endSession(sessionId, 'win', 'win', winner.playerId);
+    return { success: true, gameEnded: true, payload };
   }
 
-  if (gameEnded) {
-    await dispatchEvent('session.ended', session, sessionId);
-    return { success: true, gameEnded, reason: endReason, board: session.board };
-  } else {
-    const otherPlayer = session.players.find(p => p.playerId !== playerId);
-    session.currentTurnPlayerId = otherPlayer.playerId;
-    return { success: true, gameEnded: false, board: session.board, nextTurnPlayerId: session.currentTurnPlayerId };
+  if (isBoardFull(session.board)) {
+    const payload = await endSession(sessionId, 'draw', 'draw', null);
+    return { success: true, gameEnded: true, payload };
   }
+
+  const otherPlayer = session.players.find(p => p.playerId !== playerId);
+  session.currentTurnPlayerId = otherPlayer.playerId;
+  return { success: true, gameEnded: false, board: session.board, nextTurnPlayerId: session.currentTurnPlayerId };
 }
 
 async function handleDisconnect(socketId) {
@@ -131,6 +167,7 @@ async function handleDisconnect(socketId) {
   const player = session.players.find(p => p.socketId === socketId);
   if (!player) return null;
 
+  // Only remove the socketId mapping, do not remove the player from the session
   sessionsBySocket.delete(socketId);
   player.socketId = null;
 
@@ -163,4 +200,5 @@ module.exports = {
   makeMove,
   handleDisconnect,
   passTurn,
+  endSession, // Export the new function
 };
