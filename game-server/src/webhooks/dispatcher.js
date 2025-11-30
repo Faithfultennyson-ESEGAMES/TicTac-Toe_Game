@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const WEBHOOK_ENDPOINTS = process.env.WEBHOOK_ENDPOINTS ? process.env.WEBHOOK_ENDPOINTS.split(',') : [];
 const HMAC_SECRET = process.env.HMAC_SECRET;
 
-async function dispatchEvent(eventType, session) {
+async function dispatchEvent(eventType, payload, sessionId) {
     if (!WEBHOOK_ENDPOINTS.length) {
         return; 
     }
@@ -17,21 +17,12 @@ async function dispatchEvent(eventType, session) {
     const eventId = crypto.randomUUID();
     const timestamp = new Date().toISOString();
 
-    const payloadForWebhook = {
-        session_id: session.sessionId,
-        status: session.status,
-        players: session.players,
-        board: session.board,
-        turn_duration_sec: session.turnDurationSec,
-        created_at: session.createdAt
-    };
-
     const envelope = {
         event_id: eventId,
         event_type: eventType,
-        session_id: session.sessionId,
+        session_id: sessionId,
         timestamp,
-        payload: payloadForWebhook,
+        payload: payload,
     };
 
     const rawBody = JSON.stringify(envelope);

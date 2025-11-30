@@ -4,12 +4,21 @@ const { Server } = require('socket.io');
 require('dotenv').config();
 
 const httpRoutes = require('./src/http/routes');
+const { initializeSocket } = require('./src/game/socket_handler');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: { // In a real-world scenario, you'd want to lock this down
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 const PORT = process.env.PORT || 3000;
+
+// Initialize Socket.IO connection handling
+initializeSocket(io);
 
 app.use(express.json());
 app.use(httpRoutes);
