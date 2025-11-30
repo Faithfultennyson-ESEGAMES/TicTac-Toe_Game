@@ -1,3 +1,15 @@
+## 0.2.0 (Player Join & Game Start)
+
+### Features
+
+- **Socket.IO Integration:** Added a real-time layer with Socket.IO to handle player connections.
+- **Player Join:** Implemented a `join` event for players to register in a game session. The payload now includes `playerId` and `playerName`.
+- **Game Start:** The game now automatically begins when two players have joined a session, emitting a `game-found` event to both clients.
+- **Reconnect Handling:** Players who disconnect can now seamlessly reconnect to their session using the same `playerId`.
+- **Lean Webhooks:** The `player.joined` webhook now correctly sends a lean payload containing only the essential player delta information.
+
+---
+
 ## 0.1.0 (Initial Implementation)
 
 ### Features

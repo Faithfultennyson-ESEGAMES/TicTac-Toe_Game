@@ -1,18 +1,25 @@
 const crypto = require('crypto');
 const { dispatchEvent } = require('../webhooks/dispatcher');
+const { checkForWinner, isBoardFull } = require('./game_logic');
 
-const sessions = new Map();
+const sessions = new Map(); // sessionId -> session object
 const activePlayerIds = new Map(); // playerId -> sessionId
+const sessionsBySocket = new Map(); // socketId -> sessionId
 
 function createSession(turnDurationSec = 10) {
   const sessionId = crypto.randomUUID();
   const session = {
     sessionId,
-    status: 'pending',
+    status: 'pending', // pending -> active -> ended
     players: [],
     board: Array(9).fill(null),
     turnDurationSec,
     createdAt: new Date().toISOString(),
+    // --- Fields for CP3 ---
+    currentTurnPlayerId: null,
+    turnTimerId: null,
+    winState: null, // 'win' | 'draw'
+    winnerPlayerId: null,
   };
   sessions.set(sessionId, session);
   return session;
@@ -22,32 +29,27 @@ function getSession(sessionId) {
   return sessions.get(sessionId);
 }
 
-/**
- * Adds a player to a session or reconnects them.
- * @returns {{success: boolean, error?: string, isReconnect: boolean, gameReady: boolean, session: object}}
- */
 async function addOrReconnectPlayer(sessionId, playerId, playerName, socketId) {
   const session = getSession(sessionId);
   if (!session) {
     return { success: false, error: 'Session not found.' };
   }
 
-  // Prevent player from joining multiple different sessions
   if (activePlayerIds.has(playerId) && activePlayerIds.get(playerId) !== sessionId) {
     return { success: false, error: 'Player already in another session.' };
   }
 
   const existingPlayer = session.players.find(p => p.playerId === playerId);
+  let isReconnect = false;
 
   if (existingPlayer) {
-    // --- Player is reconnecting ---
+    isReconnect = true;
     existingPlayer.socketId = socketId;
-    return { success: true, isReconnect: true, gameReady: session.status === 'active', session };
-
+    sessionsBySocket.set(socketId, sessionId);
+    await dispatchEvent('player.reconnected', { player_id: playerId, status: 'reconnected' }, sessionId);
   } else {
-    // --- New player is joining ---
-    if (session.players.length >= 2) {
-      return { success: false, error: 'Session is full.' };
+    if (session.players.length >= 2 || session.status !== 'pending') {
+      return { success: false, error: 'Session is full or has already started.' };
     }
 
     const player = {
@@ -58,23 +60,107 @@ async function addOrReconnectPlayer(sessionId, playerId, playerName, socketId) {
     };
     session.players.push(player);
     activePlayerIds.set(playerId, sessionId);
+    sessionsBySocket.set(socketId, sessionId);
 
-    // Dispatch lean webhook for the new player
-    const webhookPayload = {
-        player_id: player.playerId,
-        player_name: player.playerName,
-        status: 'joined'
-    };
-    await dispatchEvent('player.joined', webhookPayload, session.sessionId);
+    await dispatchEvent('player.joined', { player_id: playerId, player_name: playerName, status: 'joined' }, sessionId);
 
-    let gameReady = false;
     if (session.players.length === 2) {
-        session.status = 'active';
-        gameReady = true;
+      session.status = 'active';
+      session.currentTurnPlayerId = session.players[0].playerId; // 'X' goes first
+      await dispatchEvent('session.started', session, sessionId);
     }
-    
-    return { success: true, isReconnect: false, gameReady, session };
+  }
+
+  return { success: true, isReconnect, gameReady: session.status === 'active', session };
+}
+
+async function makeMove(sessionId, playerId, position) {
+  const session = getSession(sessionId);
+
+  if (!session || session.status !== 'active') {
+    return { success: false, error: 'Session not active.' };
+  }
+  if (playerId !== session.currentTurnPlayerId) {
+    return { success: false, error: 'Not your turn.' };
+  }
+  if (position < 0 || position > 8 || session.board[position] !== null) {
+    return { success: false, error: 'Invalid move.' };
+  }
+
+  clearTimeout(session.turnTimerId);
+
+  const player = session.players.find(p => p.playerId === playerId);
+  session.board[position] = player.symbol;
+
+  const winnerSymbol = checkForWinner(session.board);
+  const boardIsFull = isBoardFull(session.board);
+
+  let gameEnded = false;
+  let endReason = null;
+
+  if (winnerSymbol) {
+    gameEnded = true;
+    endReason = 'win';
+    session.status = 'ended';
+    session.winState = 'win';
+    session.winnerPlayerId = session.players.find(p => p.symbol === winnerSymbol).playerId;
+  } else if (boardIsFull) {
+    gameEnded = true;
+    endReason = 'draw';
+    session.status = 'ended';
+    session.winState = 'draw';
+  }
+
+  if (gameEnded) {
+    await dispatchEvent('session.ended', session, sessionId);
+    return { success: true, gameEnded, reason: endReason, board: session.board };
+  } else {
+    const otherPlayer = session.players.find(p => p.playerId !== playerId);
+    session.currentTurnPlayerId = otherPlayer.playerId;
+    return { success: true, gameEnded: false, board: session.board, nextTurnPlayerId: session.currentTurnPlayerId };
   }
 }
 
-module.exports = { createSession, getSession, addOrReconnectPlayer };
+async function handleDisconnect(socketId) {
+  const sessionId = sessionsBySocket.get(socketId);
+  if (!sessionId) return null;
+
+  const session = getSession(sessionId);
+  if (!session) return null;
+
+  const player = session.players.find(p => p.socketId === socketId);
+  if (!player) return null;
+
+  sessionsBySocket.delete(socketId);
+  player.socketId = null;
+
+  if (session.status === 'active') {
+      await dispatchEvent('player.disconnected', { player_id: player.playerId, status: 'disconnected' }, sessionId);
+  }
+
+  return { session, disconnectedPlayerId: player.playerId };
+}
+
+async function passTurn(sessionId) {
+  const session = getSession(sessionId);
+  if (!session || session.status !== 'active') {
+    return { success: false };
+  }
+
+  const timedOutPlayerId = session.currentTurnPlayerId;
+  await dispatchEvent('player.turn_passed', { player_id: timedOutPlayerId, reason: 'timeout' }, sessionId);
+
+  const otherPlayer = session.players.find(p => p.playerId !== timedOutPlayerId);
+  session.currentTurnPlayerId = otherPlayer.playerId;
+
+  return { success: true, session, nextTurnPlayerId: session.currentTurnPlayerId };
+}
+
+module.exports = {
+  createSession,
+  getSession,
+  addOrReconnectPlayer,
+  makeMove,
+  handleDisconnect,
+  passTurn,
+};
