@@ -2,6 +2,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'
 const crypto = require('crypto');
 const { dispatchEvent } = require('../webhooks/dispatcher');
 const { checkForWinner, isBoardFull } = require('./game_logic');
+const sessionLogger = require('../logging/session_logger');
 
 const sessions = new Map(); // sessionId -> session object
 const activePlayerIds = new Map(); // playerId -> sessionId
@@ -44,11 +45,14 @@ async function endSession(sessionId, clientReason, webhookWinState, winnerPlayer
     session.winState = webhookWinState;
     session.winnerPlayerId = winnerPlayerId;
 
-    // 3. Asynchronously trigger the final webhook dispatch and cleanup.
+    // 3. Finalize the session log.
+    sessionLogger.finalizeLog(session, { win_state: webhookWinState, winner_player_id: winnerPlayerId });
+
+    // 4. Asynchronously trigger the final webhook dispatch and cleanup.
     // We don't wait for this to complete before notifying the client.
     _concludeAndCleanupSession(session);
 
-    // 4. Return the neutral payload for the client-facing 'game-ended' event.
+    // 5. Return the neutral payload for the client-facing 'game-ended' event.
     return { reason: clientReason, board: session.board };
 }
 
@@ -93,6 +97,8 @@ async function addOrReconnectPlayer(sessionId, playerId, playerName, socketId) {
     isReconnect = true;
     existingPlayer.socketId = socketId;
     sessionsBySocket.set(socketId, sessionId);
+
+    sessionLogger.appendEvent(sessionId, 'player.reconnected', { player_id: playerId });
     await dispatchEvent('player.reconnected', { player_id: playerId, status: 'reconnected' }, sessionId);
   } else {
     if (session.players.length >= 2 || session.status !== 'pending') {
@@ -109,12 +115,12 @@ async function addOrReconnectPlayer(sessionId, playerId, playerName, socketId) {
     activePlayerIds.set(playerId, sessionId);
     sessionsBySocket.set(socketId, sessionId);
 
+    sessionLogger.appendEvent(sessionId, 'player.joined', { player_id: playerId, player_name: playerName });
     await dispatchEvent('player.joined', { player_id: playerId, player_name: playerName, status: 'joined' }, sessionId);
 
     if (session.players.length === 2) {
       session.status = 'active';
       session.currentTurnPlayerId = session.players[0].playerId;
-      // The 'session.started' webhook is now sent from socket_handler when the game truly begins.
     }
   }
 
@@ -139,6 +145,8 @@ async function makeMove(sessionId, playerId, position) {
 
   const player = session.players.find(p => p.playerId === playerId);
   session.board[position] = player.symbol;
+
+  sessionLogger.appendEvent(sessionId, 'move.made', { player_id: playerId, position });
 
   const winnerSymbol = checkForWinner(session.board);
   if (winnerSymbol) {
@@ -172,6 +180,7 @@ async function handleDisconnect(socketId) {
   player.socketId = null;
 
   if (session.status === 'active') {
+      sessionLogger.appendEvent(sessionId, 'player.disconnected', { player_id: player.playerId });
       await dispatchEvent('player.disconnected', { player_id: player.playerId, status: 'disconnected' }, sessionId);
   }
 
@@ -185,6 +194,7 @@ async function passTurn(sessionId) {
   }
 
   const timedOutPlayerId = session.currentTurnPlayerId;
+  sessionLogger.appendEvent(sessionId, 'player.turn_passed', { player_id: timedOutPlayerId });
   await dispatchEvent('player.turn_passed', { player_id: timedOutPlayerId, reason: 'timeout' }, sessionId);
 
   const otherPlayer = session.players.find(p => p.playerId !== timedOutPlayerId);
@@ -200,5 +210,5 @@ module.exports = {
   makeMove,
   handleDisconnect,
   passTurn,
-  endSession, // Export the new function
+  endSession,
 };

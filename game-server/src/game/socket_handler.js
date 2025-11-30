@@ -7,7 +7,7 @@ const {
   getSession,
   endSession,
 } = require('./session');
-const { dispatchEvent } = require('../webhooks/dispatcher');
+const sessionLogger = require('../logging/session_logger');
 
 const MAX_TURNS = parseInt(process.env.MAX_TURNS, 10) || 12;
 
@@ -23,7 +23,7 @@ function initializeSocket(io) {
     session.turnCount += 1;
 
     if (session.turnCount > MAX_TURNS) {
-        const payload = await endSession(session.sessionId, 'draw', 'none', null);
+        const payload = await endSession(session.sessionId, 'draw', 'draw', null);
         if (payload) {
             io.to(session.sessionId).emit('game-ended', payload);
         }
@@ -31,9 +31,16 @@ function initializeSocket(io) {
     }
 
     const expiresAt = new Date(Date.now() + session.turnDurationSec * 1000);
+    const expiresAtISO = expiresAt.toISOString();
+
+    sessionLogger.appendEvent(session.sessionId, 'turn.started', {
+      player_id: session.currentTurnPlayerId,
+      expires_at: expiresAtISO,
+    });
+
     io.to(session.sessionId).emit('turn-started', {
       current_turn_player_id: session.currentTurnPlayerId,
-      expires_at: expiresAt.toISOString(),
+      expires_at: expiresAtISO,
     });
 
     session.turnTimerId = setTimeout(async () => {
@@ -71,10 +78,6 @@ function initializeSocket(io) {
         }
         
         if (result.gameReady) {
-          if (!result.isReconnect) {
-             dispatchEvent('session.started', session, session.sessionId);
-          }
-
           io.to(session.sessionId).emit('game-found', {
             session_id: session.sessionId,
             players: session.players.map(p => ({ playerId: p.playerId, playerName: p.playerName, symbol: p.symbol })),

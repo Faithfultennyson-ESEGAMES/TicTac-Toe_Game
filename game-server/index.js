@@ -5,6 +5,10 @@ require('dotenv').config();
 
 const httpRoutes = require('./src/http/routes');
 const { initializeSocket } = require('./src/game/socket_handler');
+const sessionLogger = require('./src/logging/session_logger');
+
+// --- Initialize Logging ---
+sessionLogger.init();
 
 const app = express();
 const server = http.createServer(app);

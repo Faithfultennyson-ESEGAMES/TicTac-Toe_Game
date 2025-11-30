@@ -1,6 +1,7 @@
 const express = require('express');
 const { createSession } = require('../game/session');
 const { dispatchEvent } = require('../webhooks/dispatcher');
+const sessionLogger = require('../logging/session_logger');
 
 const router = express.Router();
 
@@ -16,8 +17,11 @@ router.post('/start', async (req, res) => {
 
   const session = createSession(turn_duration_sec);
 
-  // Dispatch the session.started webhook
-  await dispatchEvent('session.started', session);
+  // Start the session log. This also logs the 'session.started' event internally.
+  sessionLogger.startSessionLog(session);
+
+  // Dispatch the session.started webhook (existing behavior)
+  await dispatchEvent('session.started', session, session.sessionId);
 
   const join_url = `${req.protocol}://${req.get('host')}/session/${session.sessionId}/join`;
 
