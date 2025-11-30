@@ -1,3 +1,18 @@
+## 0.3.0 (Core Gameplay & State Machine)
+
+### Features
+
+- **Turn-Based Gameplay:** Implemented the core Tic-Tac-Toe game logic, allowing players to make moves via a `make-move` socket event.
+- **State Machine:** The server now manages the full game lifecycle (`pending` -> `active` -> `ended`).
+- **Win/Draw Detection:** The game automatically detects win or draw conditions and ends the game accordingly.
+- **Turn Timer & Timeouts:** Each turn is timed (default 10s). If a player fails to move, their turn is passed, and a `player.turn_passed` webhook is dispatched.
+- **MAX_TURNS Rule:** Added a `MAX_TURNS` environment variable to prevent games from running indefinitely. If the turn limit is reached, the game ends in a draw.
+- **Disconnection/Reconnection:** Players can disconnect and reconnect mid-game. A `player-disconnected` webhook is sent on disconnect, and a `player-reconnected` event is sent upon their return.
+- **Session Cleanup:** Implemented robust session cleanup to remove all associated data from memory after a game concludes, preventing memory leaks.
+- **Game End Events:** When a game finishes, a neutral `game-ended` event is sent to clients, while a detailed `session.ended` webhook (including the winner) is dispatched to backend listeners.
+
+---
+
 ## 0.2.0 (Player Join & Game Start)
 
 ### Features
