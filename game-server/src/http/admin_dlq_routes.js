@@ -1,34 +1,13 @@
 const express = require('express');
 const fs = require('fs/promises');
 const path = require('path');
-const crypto = require('crypto');
 const { resendDlqItem, DLQ_DIR } = require('../webhooks/dispatcher');
+const { adminAuth } = require('./middleware/auth'); // Import shared middleware
 
 const router = express.Router();
-const DLQ_PASSWORD = process.env.DLQ_PASSWORD;
 
-// Middleware for password protection
-router.use((req, res, next) => {
-  if (!DLQ_PASSWORD) {
-    console.warn('[Admin] DLQ admin endpoints are not protected. Set DLQ_PASSWORD.');
-    return res.status(500).json({ error: 'DLQ admin is not configured.' });
-  }
-
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: Missing or invalid token.' });
-  }
-
-  const providedPassword = authHeader.split(' ')[1];
-  const passwordBuffer = Buffer.from(DLQ_PASSWORD, 'utf8');
-  const providedPasswordBuffer = Buffer.from(providedPassword, 'utf8');
-
-  if (passwordBuffer.length !== providedPasswordBuffer.length || !crypto.timingSafeEqual(passwordBuffer, providedPasswordBuffer)) {
-    return res.status(403).json({ error: 'Forbidden: Incorrect password.' });
-  }
-
-  next();
-});
+// Protect all DLQ routes with the admin password
+router.use(adminAuth);
 
 // GET /admin/dlq - List all items in the DLQ
 router.get('/dlq', async (req, res) => {
@@ -100,20 +79,24 @@ router.post('/dlq/:id/resend', validateId, async (req, res) => {
 
 // DELETE /admin/dlq - Delete all items from the DLQ
 router.delete('/dlq', async (req, res) => {
-  // Extra safeguard: require password in the body
   const { password } = req.body;
-  if (password !== DLQ_PASSWORD) {
+
+  // This endpoint requires re-authentication of the password in the body for safety.
+  if (password !== process.env.DLQ_PASSWORD) {
     return res.status(403).json({ error: 'Forbidden: Incorrect password for bulk delete.' });
   }
 
   try {
     const files = await fs.readdir(DLQ_DIR);
-    for (const file of files) {
-        if(file.endsWith('.json')) { // Only delete json files
-            await fs.unlink(path.join(DLQ_DIR, file));
-        }
+    const jsonFiles = files.filter(f => f.endsWith('.json'));
+
+    if (jsonFiles.length === 0) {
+        return res.status(200).json({ message: 'DLQ is already empty.' });
     }
-    res.status(200).json({ message: `Successfully deleted ${files.length} items from the DLQ.` });
+
+    await Promise.all(jsonFiles.map(file => fs.unlink(path.join(DLQ_DIR, file))));
+
+    res.status(200).json({ message: `Successfully deleted ${jsonFiles.length} items from the DLQ.` });
   } catch (error) {
     if (error.code === 'ENOENT') {
       return res.status(200).json({ message: 'DLQ is already empty.' });

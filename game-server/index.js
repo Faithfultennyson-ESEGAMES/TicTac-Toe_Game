@@ -9,6 +9,7 @@ validateEnv();
 
 const httpRoutes = require('./src/http/routes');
 const adminDlqRoutes = require('./src/http/admin_dlq_routes'); // Import admin routes
+const adminSessionRoutes = require('./src/http/admin_session_routes'); // Import session admin routes
 const { initializeSocket } = require('./src/game/socket_handler');
 const sessionLogger = require('./src/logging/session_logger');
 const webhookDispatcher = require('./src/webhooks/dispatcher'); // Import dispatcher
@@ -36,6 +37,7 @@ app.use(express.json());
 // Mount routers
 app.use(httpRoutes);
 app.use('/admin', adminDlqRoutes); // Mount the admin DLQ routes under /admin
+app.use('/admin', adminSessionRoutes); // Mount the admin session routes under /admin
 
 app.get('/', (req, res) => {
   res.send('Game server is running.');
