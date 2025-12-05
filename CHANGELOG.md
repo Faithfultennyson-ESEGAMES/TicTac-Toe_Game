@@ -1,3 +1,17 @@
+## 0.5.0 (Webhook Dispatcher & DLQ)
+
+### Features
+
+- **Reliable Webhook Dispatcher:** Rebuilt the webhook dispatcher (`src/webhooks/dispatcher.js`) to ensure reliable, at-least-once delivery of all game events.
+- **HMAC Signing:** All outgoing webhooks are signed with a `sha256` HMAC signature in the `X-Signature` header for enhanced security and payload integrity verification.
+- **Automatic Retries:** The dispatcher now automatically retries sending webhooks on `5xx` server errors or network failures, following a configurable schedule (`RETRY_SCHEDULE_MS`) up to a maximum number of attempts (`MAX_WEBHOOK_ATTEMPTS`).
+- **Dead Letter Queue (DLQ):** Webhooks that fail permanently (`4xx` status) or exhaust all retry attempts are moved to a persistent Dead Letter Queue in the `game-server/dlq/` directory for manual inspection and recovery.
+- **Secure Admin API:** Implemented a new set of secure endpoints under `/admin/dlq` to manage the DLQ. Access is protected by a password (`DLQ_PASSWORD`).
+- **DLQ Management:** The admin API allows operators to list all DLQ items, view the details of a specific item, trigger a manual resend, and securely delete all items from the queue.
+- **Robust Configuration:** The dispatcher gracefully handles scenarios where webhook endpoints are not configured, preventing crashes and ensuring game logic continues uninterrupted.
+
+---
+
 ## 0.4.0 (Session Logging & TTL)
 
 ### Features
