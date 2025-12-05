@@ -18,7 +18,7 @@
         }
         body { font-family: var(--font-family); background-color: var(--color-bg); color: var(--color-text); margin: 0; padding: 24px; font-size: 14px; }
         main { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; max-width: 1600px; margin: 0 auto; }
-        section { background-color: var(--color-surface); border-radius: 8px; padding: 20px; }
+        section { background-color: var(--color-surface); border-radius: 8px; padding: 20px; display: flex; flex-direction: column; }
         h1, h2 { margin-top: 0; border-bottom: 1px solid var(--color-text-muted); padding-bottom: 10px; }
         h1 { font-size: 24px; }
         h2 { font-size: 18px; color: var(--color-primary); }
@@ -27,7 +27,8 @@
         #password-modal div { background-color: var(--color-surface); padding: 30px; border-radius: 8px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
         #password-modal input { margin: 10px 0 20px; }
         
-        #webhook-logs-container { height: 85vh; overflow-y: auto; }
+        #webhook-viewer { height: 90vh; }
+        #webhook-logs-container { flex-grow: 1; overflow-y: auto; }
         .session-group { margin-bottom: 20px; border: 1px solid #444; border-radius: 6px; }
         .session-header { background-color: #333; padding: 8px 12px; font-weight: bold; cursor: pointer; user-select: none; }
         .session-header:hover { background-color: #3a3a3a; }
@@ -40,6 +41,7 @@
         .invalid { background-color: var(--color-danger); color: white; }
         pre { background-color: #111; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px; }
 
+        #admin-actions { height: 90vh; }
         .form-group { margin-bottom: 16px; }
         label { display: block; margin-bottom: 6px; font-weight: bold; color: var(--color-text-muted); }
         input[type="text"] { width: calc(100% - 20px); background-color: var(--color-bg); border: 1px solid #555; border-radius: 4px; color: var(--color-text); padding: 8px 10px; font-family: var(--font-family); }
@@ -47,8 +49,25 @@
         button:hover { opacity: 0.9; }
         button.danger { background-color: var(--color-danger); }
         .button-group { display: flex; flex-wrap: wrap; }
-        #api-response-container { margin-top: 20px; }
+        
+        #api-response-container {
+            margin-top: 20px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0; /* Important for flex child with overflow */
+        }
         #api-response-container h3 { margin-top: 0; font-size: 16px; }
+        #api-response-content {
+            flex-grow: 1;
+            overflow-y: auto; /* This makes the API response scrollable */
+            background-color: #111;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -121,9 +140,9 @@
             const handlePasswordSubmit = () => {
                 viewerPassword = passwordInput.value;
                 if (!viewerPassword) { alert('Password cannot be empty.'); return; }
-                passwordModal.style.display = 'none';
-                mainContent.style.display = 'grid';
-                startPolling();
+                // We will attempt to fetch logs, if it succeeds, we show the main content.
+                // This implicitly validates the password.
+                fetchAndRenderLogs(); 
             };
             
             passwordSubmitBtn.addEventListener('click', handlePasswordSubmit);
@@ -139,17 +158,27 @@
                     
                     if (res.status === 401) {
                         stopPolling();
-                        alert('Authentication failed. Reload and try again.');
+                        passwordInput.value = '';
+                        alert('Authentication failed. Please try again.');
                         passwordModal.style.display = 'flex';
                         mainContent.style.display = 'none';
                         return;
                     }
+
                     if (!res.ok) throw new Error(`Server responded with status: ${res.status}`);
                     
+                    // If fetch is successful, show the main content
+                    if (mainContent.style.display === 'none') {
+                        passwordModal.style.display = 'none';
+                        mainContent.style.display = 'grid';
+                        startPolling();
+                    }
+
                     const logs = await res.json();
                     renderLogs(logs);
                 } catch (error) {
                     console.error('Error fetching webhook logs:', error);
+                    stopPolling();
                 }
             };
             
@@ -214,7 +243,6 @@
                     sessionDiv.appendChild(contentDiv);
                     logsContainer.appendChild(sessionDiv);
                     
-                    // Restore open/closed state
                     if (!openSessions.has(sessionId)) {
                         contentDiv.style.display = 'none';
                         sessionDiv.dataset.state = 'closed';
@@ -226,7 +254,7 @@
 
             const startPolling = () => {
                 if(pollerInterval) clearInterval(pollerInterval);
-                fetchAndRenderLogs();
+                // No initial fetch here, it's handled by the login logic
                 pollerInterval = setInterval(fetchAndRenderLogs, 3000);
             };
             
@@ -243,7 +271,7 @@
                         body: JSON.stringify({ viewerPassword, action, params })
                     });
                     
-                    const responseBody = await res.json().catch(() => res.text());
+                    const responseBody = await res.json().catch(async () => await res.text());
                     responseContent.textContent = `Status: ${res.status}\n\n` + 
                         (typeof responseBody === 'object' ? JSON.stringify(responseBody, null, 2) : responseBody);
 

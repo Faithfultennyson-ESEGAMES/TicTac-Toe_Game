@@ -11,8 +11,12 @@ const PORT = 4000;
 const webhookLogs = new Map();
 
 // --- Middleware ---
-app.use(express.raw({ type: 'application/json', limit: '5mb' })); // For HMAC
-app.use(express.json({ limit: '5mb' })); // For other routes
+
+// For the webhook endpoint, we need the raw body to verify the signature.
+app.use('/webhook', express.raw({ type: 'application/json', limit: '5mb' }));
+
+// For all other routes, we want the body parsed as JSON.
+app.use(express.json({ limit: '5mb' }));
 
 // --- Helper Functions ---
 function verifySignature(rawBody, signatureHeader) {
@@ -25,7 +29,10 @@ function verifySignature(rawBody, signatureHeader) {
     const expected = `${expectedPrefix}${computedHex}`;
 
     try {
-        return crypto.timingSafeEqual(Buffer.from(signatureHeader, 'utf8'), Buffer.from(expected, 'utf8'));
+        // Use Buffer.from to handle potential encoding issues
+        const receivedBuf = Buffer.from(signatureHeader, 'utf8');
+        const expectedBuf = Buffer.from(expected, 'utf8');
+        return crypto.timingSafeEqual(receivedBuf, expectedBuf);
     } catch {
         return false;
     }
@@ -37,13 +44,13 @@ function verifySignature(rawBody, signatureHeader) {
 app.post('/webhook', (req, res) => {
     const eventId = req.header('X-Event-Id') || `evt_${Date.now()}`;
     const signature = req.header('X-Signature');
-    // req.body is a Buffer here because of express.raw()
+    // req.body is a Buffer here because of the scoped express.raw() middleware
     const isValid = verifySignature(req.body, signature);
 
     let parsedBody = {};
     try {
         parsedBody = JSON.parse(req.body.toString('utf8'));
-    } catch (e) { /* Ignore parsing errors */ }
+    } catch (e) { /* Ignore parsing errors, log raw body */ }
 
     const logEntry = {
         id: eventId,
@@ -58,6 +65,7 @@ app.post('/webhook', (req, res) => {
     webhookLogs.set(logEntry.id, logEntry);
     console.log(`[INFO] Webhook: ${logEntry.eventType}, Session: ${logEntry.sessionId}, Valid: ${isValid}`);
 
+    // Auto-delete after 30 minutes
     setTimeout(() => {
         webhookLogs.delete(logEntry.id);
         console.log(`[INFO] Auto-deleted log: ${logEntry.id}`);
@@ -68,6 +76,7 @@ app.post('/webhook', (req, res) => {
 
 // 2. Endpoint for the FRONTEND to FETCH webhook logs
 app.post('/api/webhooks', (req, res) => {
+    // Here, req.body is properly parsed JSON because of express.json()
     if (req.body.password !== process.env.VIEWER_PASSWORD) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -76,7 +85,7 @@ app.post('/api/webhooks', (req, res) => {
 
 // 3. SECURE PROXY for sending admin commands to the game-server
 app.post('/api/admin-action', async (req, res) => {
-    // First-level auth: Does the user have the UI password?
+    // Here, req.body is also properly parsed JSON
     if (req.body.viewerPassword !== process.env.VIEWER_PASSWORD) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -90,7 +99,6 @@ app.post('/api/admin-action', async (req, res) => {
 
     let url, method, data;
 
-    // Construct the request based on the desired action
     switch (action) {
         case 'end_session':
             url = `${GAME_SERVER_URL}/admin/sessions/${params.sessionId}/end`;
@@ -111,7 +119,7 @@ app.post('/api/admin-action', async (req, res) => {
         case 'delete_dlq':
             url = `${GAME_SERVER_URL}/admin/dlq`;
             method = 'DELETE';
-            data = { password: DLQ_PASSWORD }; // Special requirement for this endpoint
+            data = { password: DLQ_PASSWORD }; 
             break;
         default:
             return res.status(400).json({ error: 'Invalid admin action' });
@@ -127,7 +135,7 @@ app.post('/api/admin-action', async (req, res) => {
         res.status(response.status).json(response.data);
     } catch (error) {
         if (error.response) {
-            res.status(error.response.status).json(error.response.data);
+            res.status(error.response.status).json(error.response.data || { error: 'No response data from server.' });
         } else {
             res.status(500).json({ error: 'Network error or game server is down.' });
         }
@@ -146,3 +154,4 @@ app.listen(PORT, () => {
     if (!process.env.GAME_SERVER_URL) console.warn('[WARN] GAME_SERVER_URL is not set.');
     if (!process.env.DLQ_PASSWORD) console.warn('[WARN] DLQ_PASSWORD is not set.');
 });
+
