@@ -1,3 +1,4 @@
+import debug from './debug.js';
 import ConnectionManager from "./connectionManager.js";
 
 class SocketManager {
@@ -9,31 +10,31 @@ class SocketManager {
     this.connectionManager = new ConnectionManager(connectionCallbacks);
   }
 
-  connect() {
-    console.info('[SocketManager] connect() invoked', { url: this.url, hasExisting: !!this.socket });
+  async connect() {
+    debug.log('[SocketManager] connect() invoked', { url: this.url, hasExisting: !!this.socket });
 
-    if (this.socket) {
-      if (this.socket.connected) {
-        return Promise.resolve(this.socket);
-      }
-
-      return new Promise((resolve) => {
-        this.socket.once('connect', () => resolve(this.socket));
-        this.socket.connect();
-      });
+    if (this.socket?.connected) {
+      return this.socket;
     }
 
-    if (typeof window.io !== 'function') {
-      return Promise.reject(new Error('Socket.IO client library not loaded.'));
-    }
+    // Wait for the socket.io script to be loaded.
+    await this._waitForSocketIo();
 
     this.connectionManager.setStatus('connecting');
 
     return new Promise((resolve, reject) => {
+      if (this.socket) {
+        // If a socket instance already exists but is disconnected, just reconnect it.
+        this.socket.once('connect', () => resolve(this.socket));
+        this.socket.connect();
+        return;
+      }
+
       this.socket = window.io(this.url, {
         reconnection: true,
-        reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5,
         auth: this.authToken ? { token: this.authToken } : undefined,
       });
 
@@ -52,7 +53,7 @@ class SocketManager {
       };
 
       const onError = (error) => {
-        console.error('[SocketManager] connect error', error);
+        debug.error('[SocketManager] connect error', error);
         this.connectionManager.setStatus('error', { error });
       };
 
@@ -69,127 +70,91 @@ class SocketManager {
     });
   }
 
+  // Polls to check if the main socket.io script has loaded.
+  async _waitForSocketIo(maxWaitMs = 10000) {
+    return new Promise((resolve, reject) => {
+      if (typeof window.io === 'function') {
+        return resolve();
+      }
+      const interval = 100;
+      let elapsedTime = 0;
+      const handle = setInterval(() => {
+        if (typeof window.io === 'function') {
+          clearInterval(handle);
+          return resolve();
+        }
+        elapsedTime += interval;
+        if (elapsedTime >= maxWaitMs) {
+          clearInterval(handle);
+          debug.error('[SocketManager] window.io not found after timeout.');
+          reject(new Error('Socket.IO client library not loaded.'));
+        }
+      }, interval);
+    });
+  }
+
+
   _setupCoreListeners() {
-    if (!this.socket) {
-      return;
-    }
+    if (!this.socket) return;
 
     this.socket.on('connect', () => {
-      const transport = this.socket.io?.engine?.transport?.name;
-      console.info('[SocketManager] connected', { id: this.socket.id, transport });
+      debug.log('[SocketManager] connected', { id: this.socket.id });
       this.connectionManager.setStatus('connected');
     });
 
     this.socket.on('disconnect', (reason) => {
+      debug.warn('[SocketManager] disconnected', { reason });
       this.connectionManager.setStatus('disconnected', { reason });
     });
 
-    this.socket.on('reconnect_attempt', (attempt) => {
+    this.socket.io.on('reconnect_attempt', (attempt) => {
+      debug.log('[SocketManager] reconnect_attempt', { attempt });
       this.connectionManager.setStatus('reconnecting', { attempt });
     });
 
-    this.socket.on('reconnect', () => {
-      this.connectionManager.resetBackoff();
-      this.connectionManager.setStatus('connected');
+    this.socket.io.on('reconnect_failed', () => {
+        debug.error('[SocketManager] Reconnect failed after all attempts');
+        this.connectionManager.setStatus('error', { error: 'reconnect_failed' });
     });
 
     this.socket.on('connect_error', (error) => {
-      console.error('[SocketManager] connect_error event', error);
+      debug.error('[SocketManager] connect_error event', error);
       this.connectionManager.setStatus('error', { error });
-      this.connectionManager.scheduleReconnect(() => {
-        if (this.socket && this.socket.disconnected) {
-          this.socket.connect();
-        }
-      });
     });
   }
 
   on(event, handler) {
-    if (!this.socket) {
-      throw new Error('Socket not connected yet');
-    }
-
+    if (!this.socket) throw new Error('Socket not initialized yet');
     this.socket.on(event, handler);
-    if (!this.registeredHandlers.has(event)) {
-      this.registeredHandlers.set(event, new Set());
-    }
-    this.registeredHandlers.get(event).add(handler);
+    this.registeredHandlers.set(event, this.registeredHandlers.get(event)?.add(handler) || new Set([handler]));
   }
 
   off(event, handler) {
-    if (!this.socket) {
-      return;
-    }
+    if (!this.socket) return;
     this.socket.off(event, handler);
-    if (this.registeredHandlers.has(event)) {
-      this.registeredHandlers.get(event).delete(handler);
-    }
+    this.registeredHandlers.get(event)?.delete(handler);
   }
 
   emit(event, payload = {}, callback = () => {}) {
-    if (!this.socket) {
-      throw new Error('Socket not connected yet');
-    }
+    if (!this.socket) throw new Error('Socket not connected yet');
     this.socket.emit(event, payload, callback);
-  }
-
-  registerPlayer(player) {
-    return new Promise((resolve) => {
-      this.emit('register-player', player, (response) => {
-        resolve(response);
-      });
-    });
-  }
-
-  joinQueue(player) {
-    return new Promise((resolve) => {
-      this.emit('join-queue', player, (response) => {
-        resolve(response);
-      });
-    });
-  }
-
-  cancelQueue() {
-    return new Promise((resolve) => {
-      this.emit('cancel-queue', (response) => {
-        resolve(response);
-      });
-    });
   }
 
   makeMove(payload) {
     return new Promise((resolve) => {
-      this.emit('make-move', payload, (response) => {
-        resolve(response);
-      });
-    });
-  }
-
-  forfeit(sessionId) {
-    return new Promise((resolve) => {
-      this.emit('forfeit', { sessionId }, (response) => {
-        resolve(response);
-      });
-    });
-  }
-
-  rejoinSession(payload) {
-    return new Promise((resolve) => {
-      this.emit('rejoin-session', payload, (response) => {
-        resolve(response);
-      });
+      this.emit('make_move', payload, (response) => resolve(response));
     });
   }
 
   disconnect() {
-    if (this.socket) {
-      this.registeredHandlers.forEach((handlers, event) => {
-        handlers.forEach((handler) => this.socket.off(event, handler));
-      });
-      this.socket.disconnect();
-      this.socket = null;
-      this.registeredHandlers.clear();
-    }
+    if (!this.socket) return;
+    this.registeredHandlers.forEach((handlers, event) => {
+      handlers.forEach((handler) => this.socket.off(event, handler));
+    });
+    this.socket.disconnect();
+    this.socket = null;
+    this.registeredHandlers.clear();
+    debug.log('[SocketManager] Disconnected and cleaned up.');
   }
 }
 
