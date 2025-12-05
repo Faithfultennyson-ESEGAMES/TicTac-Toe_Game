@@ -1,3 +1,4 @@
+
 const express = require('express');
 const crypto = require('crypto');
 require('dotenv').config();
@@ -5,101 +6,114 @@ require('dotenv').config();
 const app = express();
 const PORT = 4000;
 
-// We need the RAW body (Buffer) to verify HMAC correctly.
-// So: use express.raw instead of express.json.
+// In-memory store for webhook logs
+const webhookLogs = new Map();
+
+// --- Middleware ---
+
+// Use express.raw for the webhook endpoint to verify HMAC
 app.use(
   '/webhook',
   express.raw({ type: 'application/json' })
 );
 
-// Simple middleware to log every request briefly
-app.use((req, res, next) => {
-  console.log('--- Incoming Request ---');
-  console.log(req.method, req.url);
-  next();
-});
+// Use express.json for all other routes
+app.use(express.json());
 
-// Helper: verify HMAC-SHA256 signature
+
+// --- Helper Functions ---
+
 function verifySignature(rawBody, signatureHeader) {
   const secret = process.env.HMAC_SECRET;
   if (!secret) {
     console.warn('[WARN] HMAC_SECRET is not set in .env — cannot verify signature.');
     return false;
   }
+  if (!signatureHeader || typeof signatureHeader !== 'string') return false;
 
-  if (!signatureHeader || typeof signatureHeader !== 'string') {
-    return false;
-  }
-
-  // Dispatcher format: "sha256=<hex>"
   const expectedPrefix = 'sha256=';
-  if (!signatureHeader.startsWith(expectedPrefix)) {
-    return false;
-  }
+  if (!signatureHeader.startsWith(expectedPrefix)) return false;
 
   const received = signatureHeader.trim();
   const computedHex = crypto
     .createHmac('sha256', secret)
     .update(rawBody)
     .digest('hex');
-
   const expected = `${expectedPrefix}${computedHex}`;
 
-  // Timing-safe comparison when possible
-  const receivedBuf = Buffer.from(received, 'utf8');
-  const expectedBuf = Buffer.from(expected, 'utf8');
-
-  if (receivedBuf.length !== expectedBuf.length) {
-    return false;
-  }
-
   try {
-    return crypto.timingSafeEqual(receivedBuf, expectedBuf);
+    return crypto.timingSafeEqual(Buffer.from(received, 'utf8'), Buffer.from(expected, 'utf8'));
   } catch {
-    // Fallback if something weird happens
     return false;
   }
 }
 
-// Main webhook endpoint
+// --- Main Application Routes ---
+
+// 1. Endpoint to RECEIVE webhooks from the game-server
 app.post('/webhook', (req, res) => {
-  const eventId = req.header('X-Event-Id');
-  const eventType = req.header('X-Event-Type');
+  const eventId = req.header('X-Event-Id') || `evt_${Date.now()}`;
   const signature = req.header('X-Signature');
+  const isValid = verifySignature(req.body, signature);
 
-  const rawBody = req.body instanceof Buffer ? req.body : Buffer.from('', 'utf8');
-
-  // Try to parse JSON for pretty logging
-  let parsedBody = null;
+  let parsedBody = {};
   try {
-    parsedBody = JSON.parse(rawBody.toString('utf8') || '{}');
-  } catch {
-    parsedBody = null;
+    parsedBody = JSON.parse(req.body.toString('utf8'));
+  } catch (e) {
+    console.error("Error parsing webhook body:", e);
+    // Still log the raw body if parsing fails
   }
 
-  const isValid = verifySignature(rawBody, signature);
+  const logEntry = {
+    id: eventId,
+    receivedAt: new Date().toISOString(),
+    eventType: req.header('X-Event-Type'),
+    sessionId: parsedBody.session_id || 'N/A',
+    signature,
+    isValid,
+    payload: parsedBody,
+  };
 
-  console.log('=== Webhook Received ===');
-  console.log('Time:        ', new Date().toISOString());
-  console.log('Event ID:    ', eventId);
-  console.log('Event Type:  ', eventType);
-  console.log('Signature:   ', signature);
-  console.log('Signature OK:', isValid);
-  console.log('Body:');
-  console.dir(parsedBody ?? rawBody.toString('utf8'), { depth: null });
-  console.log('=========================');
-  console.log('');
+  // Store the log
+  webhookLogs.set(logEntry.id, logEntry);
+  console.log(`[INFO] Webhook Received: ${logEntry.eventType} for session ${logEntry.sessionId}. Valid: ${isValid}`);
 
-  // We still reply 200 so the dispatcher treats this as success.
-  // If you ever want to test failure paths, you could conditionally send 400 when !isValid.
+
+  // Set a timer to auto-delete the log after 30 minutes (1800000 ms)
+  setTimeout(() => {
+    webhookLogs.delete(logEntry.id);
+    console.log(`[INFO] Auto-deleted webhook log: ${logEntry.id}`);
+  }, 1800000);
+
+
   res.status(200).json({ ok: true, signatureValid: isValid });
 });
 
-// Optional: a tiny GET endpoint just to see if server is alive
+// 2. Endpoint for the FRONTEND to FETCH webhook logs
+app.post('/api/webhooks', (req, res) => {
+  const { password } = req.body;
+
+  if (password !== process.env.VIEWER_PASSWORD) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  // Convert Map iterator to an array and send
+  const logs = Array.from(webhookLogs.values());
+  res.json(logs);
+});
+
+
+// 3. Serve the Admin Control Panel UI
 app.get('/', (req, res) => {
-  res.send('Webhook Test Consumer is running ✅');
+  res.sendFile(__dirname + '/index.html');
 });
 
 app.listen(PORT, () => {
-  console.log(`Webhook Test Consumer listening on port ${PORT}`);
+  console.log(`Admin Control Panel listening on http://localhost:${PORT}`);
+  if(!process.env.HMAC_SECRET) {
+    console.warn('[WARN] HMAC_SECRET is not set. Webhook signature validation will fail.');
+  }
+    if(!process.env.VIEWER_PASSWORD) {
+    console.warn('[WARN] VIEWER_PASSWORD is not set. The Admin UI will not be accessible.');
+  }
 });

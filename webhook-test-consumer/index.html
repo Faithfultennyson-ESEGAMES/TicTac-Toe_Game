@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Control Panel</title>
+    <style>
+        :root {
+            --color-bg: #1a1a1a;
+            --color-surface: #2c2c2c;
+            --color-primary: #00aaff;
+            --color-text: #e0e0e0;
+            --color-text-muted: #888888;
+            --color-success: #28a745;
+            --color-danger: #dc3545;
+            --color-warn: #ffc107;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        body {
+            font-family: var(--font-family);
+            background-color: var(--color-bg);
+            color: var(--color-text);
+            margin: 0;
+            padding: 24px;
+            font-size: 14px;
+        }
+        main {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        section {
+            background-color: var(--color-surface);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        h1, h2 {
+            margin-top: 0;
+            border-bottom: 1px solid var(--color-text-muted);
+            padding-bottom: 10px;
+        }
+        h1 { font-size: 24px; }
+        h2 { font-size: 18px; color: var(--color-primary); }
+
+        /* Password Modal */
+        #password-modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        #password-modal div {
+            background-color: var(--color-surface);
+            padding: 30px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        }
+        #password-modal input {
+            margin: 10px 0 20px;
+        }
+        
+        /* Webhook Logs */
+        #webhook-logs-container {
+            height: 85vh;
+            overflow-y: auto;
+        }
+        .session-group {
+            margin-bottom: 20px;
+            border: 1px solid #444;
+            border-radius: 6px;
+        }
+        .session-header {
+            background-color: #333;
+            padding: 8px 12px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+        }
+        .session-header:hover { background-color: #3a3a3a; }
+        .session-id-text { color: var(--color-primary); }
+        .log-entry {
+            border-bottom: 1px solid #444;
+            padding: 10px 12px;
+        }
+        .log-entry:last-child { border-bottom: none; }
+        .log-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        .log-validity {
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .valid { background-color: var(--color-success); color: white; }
+        .invalid { background-color: var(--color-danger); color: white; }
+        pre {
+            background-color: #111;
+            padding: 10px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin: 0;
+            font-size: 12px;
+        }
+
+        /* Admin Actions */
+        .form-group {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: bold;
+            color: var(--color-text-muted);
+        }
+        input[type="text"], input[type="password"] {
+            width: calc(100% - 20px);
+            background-color: var(--color-bg);
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: var(--color-text);
+            padding: 8px 10px;
+            font-family: var(--font-family);
+        }
+        button {
+            background-color: var(--color-primary);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        button:hover { opacity: 0.9; }
+        button.danger { background-color: var(--color-danger); }
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+        }
+        #api-response-container {
+            margin-top: 20px;
+        }
+        #api-response-container h3 { margin-top: 0; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+    <main style="display: none;">
+        <section id="webhook-viewer">
+            <h1>Webhook Logs</h1>
+            <div id="webhook-logs-container"></div>
+        </section>
+        <section id="admin-actions">
+            <h1>Admin Actions</h1>
+            
+            <h2>Game Server Config</h2>
+            <div class="form-group">
+                <label for="game-server-url">Game Server URL</label>
+                <input type="text" id="game-server-url" value="http://localhost:5500">
+            </div>
+            <div class="form-group">
+                <label for="dlq-password">Game Server Admin Password</label>
+                <input type="password" id="dlq-password" placeholder="Enter DLQ_PASSWORD from server .env">
+            </div>
+
+            <h2>Session Control</h2>
+            <div class="form-group">
+                <label for="session-id-input">Session ID</label>
+                <input type="text" id="session-id-input" placeholder="Copy from logs or enter manually">
+            </div>
+            <button id="end-session-btn">Force End Session</button>
+
+            <h2>Dead Letter Queue (DLQ)</h2>
+            <div class="form-group">
+                <label for="dlq-id-input">DLQ Item ID</label>
+                <input type="text" id="dlq-id-input" placeholder="Enter DLQ item ID">
+            </div>
+            <div class="button-group">
+                <button id="list-dlq-btn">List Items</button>
+                <button id="get-dlq-btn">Get Item</button>
+                <button id="resend-dlq-btn">Resend Item</button>
+                <button id="delete-dlq-btn" class="danger">DELETE ALL ITEMS</button>
+            </div>
+
+            <div id="api-response-container">
+                <h3>API Response</h3>
+                <pre id="api-response-content">No request sent yet.</pre>
+            </div>
+        </section>
+    </main>
+
+    <div id="password-modal">
+        <div>
+            <h2>Enter Access Password</h2>
+            <input type="password" id="viewer-password" autofocus>
+            <br>
+            <button id="password-submit-btn">Submit</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- State ---
+            let viewerPassword = '';
+            let pollerInterval = null;
+
+            // --- DOM Elements ---
+            const mainContent = document.querySelector('main');
+            const passwordModal = document.getElementById('password-modal');
+            const passwordInput = document.getElementById('viewer-password');
+            const passwordSubmitBtn = document.getElementById('password-submit-btn');
+            const logsContainer = document.getElementById('webhook-logs-container');
+            
+            const gameServerUrlInput = document.getElementById('game-server-url');
+            const dlqPasswordInput = document.getElementById('dlq-password');
+            const sessionIdInput = document.getElementById('session-id-input');
+            const dlqIdInput = document.getElementById('dlq-id-input');
+            
+            const endSessionBtn = document.getElementById('end-session-btn');
+            const listDlqBtn = document.getElementById('list-dlq-btn');
+            const getDlqBtn = document.getElementById('get-dlq-btn');
+            const resendDlqBtn = document.getElementById('resend-dlq-btn');
+            const deleteDlqBtn = document.getElementById('delete-dlq-btn');
+
+            const responseContent = document.getElementById('api-response-content');
+
+            // --- Password Protection ---
+            const handlePasswordSubmit = () => {
+                viewerPassword = passwordInput.value;
+                if (!viewerPassword) {
+                    alert('Password cannot be empty.');
+                    return;
+                }
+                passwordModal.style.display = 'none';
+                mainContent.style.display = 'grid';
+                startPolling();
+            };
+            
+            passwordSubmitBtn.addEventListener('click', handlePasswordSubmit);
+            passwordInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handlePasswordSubmit();
+            });
+
+            // --- Webhook Log Fetching & Rendering ---
+            const fetchAndRenderLogs = async () => {
+                try {
+                    const res = await fetch('/api/webhooks', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password: viewerPassword })
+                    });
+                    
+                    if (res.status === 401) {
+                        stopPolling();
+                        alert('Authentication failed. Reload and try again.');
+                        passwordModal.style.display = 'flex';
+                        mainContent.style.display = 'none';
+                        return;
+                    }
+
+                    if (!res.ok) throw new Error(`Server responded with status: ${res.status}`);
+                    
+                    const logs = await res.json();
+                    renderLogs(logs);
+
+                } catch (error) {
+                    console.error('Error fetching webhook logs:', error);
+                    logsContainer.innerHTML = '<p>Error fetching logs. Check console.</p>';
+                }
+            };
+            
+            const renderLogs = (logs) => {
+                const groupedBySession = logs.reduce((acc, log) => {
+                    const key = log.sessionId || 'Unknown Session';
+                    if (!acc[key]) acc[key] = [];
+                    acc[key].push(log);
+                    return acc;
+                }, {});
+
+                logsContainer.innerHTML = ''; // Clear existing logs
+
+                for (const sessionId in groupedBySession) {
+                    const group = groupedBySession[sessionId];
+                    const sessionDiv = document.createElement('div');
+                    sessionDiv.className = 'session-group';
+
+                    const header = document.createElement('div');
+                    header.className = 'session-header';
+                    header.innerHTML = `Session: <span class="session-id-text">${sessionId}</span> (${group.length} events)`;
+                    header.onclick = (e) => {
+                        if (e.target.classList.contains('session-id-text')) {
+                             navigator.clipboard.writeText(sessionId).then(() => {
+                                 alert(`Session ID "${sessionId}" copied to clipboard.`);
+                             });
+                        }
+                    };
+                    
+                    sessionDiv.appendChild(header);
+
+                    group.sort((a,b) => new Date(b.receivedAt) - new Date(a.receivedAt));
+                    group.forEach(log => {
+                        const logDiv = document.createElement('div');
+                        logDiv.className = 'log-entry';
+                        const validityClass = log.isValid ? 'valid' : 'invalid';
+                        const validityText = log.isValid ? 'VALID' : 'INVALID';
+                        
+                        logDiv.innerHTML = `
+                            <div class="log-meta">
+                                <div><strong>Type:</strong> ${log.eventType || 'N/A'}</div>
+                                <span class="log-validity ${validityClass}">${validityText}</span>
+                            </div>
+                            <div style="font-size:11px; color: var(--color-text-muted); margin-bottom: 8px;">${log.receivedAt}</div>
+                            <pre>${JSON.stringify(log.payload, null, 2)}</pre>
+                        `;
+                        sessionDiv.appendChild(logDiv);
+                    });
+                    logsContainer.appendChild(sessionDiv);
+                }
+            };
+
+            const startPolling = () => {
+                if(pollerInterval) clearInterval(pollerInterval);
+                fetchAndRenderLogs(); // Initial fetch
+                pollerInterval = setInterval(fetchAndRenderLogs, 3000);
+            };
+            
+            const stopPolling = () => {
+                if(pollerInterval) clearInterval(pollerInterval);
+            };
+
+            // --- Admin API Calls ---
+            const sendAdminRequest = async (path, method = 'GET', body = null) => {
+                const url = gameServerUrlInput.value;
+                const password = dlqPasswordInput.value;
+
+                if (!password) {
+                    alert('Game Server Admin Password is required.');
+                    return;
+                }
+
+                try {
+                    responseContent.textContent = 'Sending request...';
+                    const headers = {
+                        'Authorization': `Bearer ${password}`,
+                        'Content-Type': 'application/json'
+                    };
+
+                    const options = { method, headers };
+                    if (body) {
+                        options.body = JSON.stringify(body);
+                    }
+                    
+                    const res = await fetch(`${url}${path}`, options);
+                    
+                    const responseBody = await res.json().catch(() => res.text());
+
+                    responseContent.textContent = 
+                        `Status: ${res.status}\n\n` +
+                        (typeof responseBody === 'object' ? JSON.stringify(responseBody, null, 2) : responseBody);
+
+                } catch (error) {
+                    console.error('Admin API request failed:', error);
+                    responseContent.textContent = `Request failed:\n${error.message}`;
+                }
+            };
+            
+            endSessionBtn.addEventListener('click', () => {
+                const sessionId = sessionIdInput.value;
+                if (!sessionId) { alert('Session ID is required.'); return; }
+                sendAdminRequest(`/admin/sessions/${sessionId}/end`, 'POST');
+            });
+
+            listDlqBtn.addEventListener('click', () => sendAdminRequest('/admin/dlq', 'GET'));
+            
+            getDlqBtn.addEventListener('click', () => {
+                const dlqId = dlqIdInput.value;
+                if (!dlqId) { alert('DLQ Item ID is required.'); return; }
+                sendAdminRequest(`/admin/dlq/${dlqId}`, 'GET');
+            });
+
+            resendDlqBtn.addEventListener('click', () => {
+                const dlqId = dlqIdInput.value;
+                if (!dlqId) { alert('DLQ Item ID is required.'); return; }
+                sendAdminRequest(`/admin/dlq/${dlqId}/resend`, 'POST');
+            });
+
+            deleteDlqBtn.addEventListener('click', () => {
+                if (!confirm('Are you sure you want to delete ALL items from the DLQ? This is a destructive action.')) {
+                    return;
+                }
+                const password = dlqPasswordInput.value;
+                // This endpoint requires special password confirmation in the body
+                sendAdminRequest('/admin/dlq', 'DELETE', { password });
+            });
+        });
+    </script>
+</body>
+</html>

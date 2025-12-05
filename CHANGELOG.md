@@ -1,3 +1,14 @@
+## 0.5.2 (Documentation)
+
+### Docs
+
+- **Comprehensive API Documentation:** Created a new, comprehensive API documentation file (`(DLQ)Admin_API.md`) that covers all aspects of the game server.
+- **Webhook Guide:** The documentation now includes a detailed guide for webhook consumers, explaining signature verification, event payloads, and the retry/DLQ mechanism.
+- **Admin Endpoints:** Fully documented the administrative APIs for session management (`/admin/sessions/:sessionId/end`) and the Dead Letter Queue (`/admin/dlq`).
+- **Real-Time Events:** Clarified the full Socket.IO event lifecycle for real-time gameplay.
+
+---
+
 ## 0.5.1 (Hotfix)
 
 ### Fixes
