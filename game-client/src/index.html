@@ -23,7 +23,7 @@
       <div class="player-card" id="player-o">
         <span class="player-symbol">O</span>
         <span class="player-name" id="player-o-name">Waiting...</span>
-        <span class="player-stake" id="player-o-stake"></span>
+        <span classC="player-stake" id="player-o-stake"></span>
       </div>
     </header>
 
@@ -42,12 +42,10 @@
     </main>
 
     <footer class="controls">
-      <button id="forfeit-btn" class="control-btn danger">Forfeit</button>
       <div id="connection-status" class="connection-status">
         <span id="status-indicator" class="status-indicator connected"></span>
         <span id="status-text">Connected</span>
       </div>
-      <button id="mute-btn" class="control-btn">Toggle Audio</button>
     </footer>
   </div>
 
@@ -62,19 +60,16 @@
 
   <section id="result-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-content">
-      <h2 id="result-title">Game Over</h2>
+      <h2 id="result-title">Game has ended</h2>
       <p id="result-summary"></p>
+      <p id="end-screen-timer">Time since end: 0s</p>
       <div class="modal-actions">
         <button id="result-close-btn" class="control-btn">Close</button>
-        <button id="result-requeue-btn" class="control-btn primary">Find New Game</button>
       </div>
     </div>
   </section>
 
   <script>
-  // Hard-target the live server. No localhost. No :8080.
-  window.__GAME_SERVER_BASE__ = "https://tiktactoegameserver-production.up.railway.app";
-
   // Always load Socket.IO from CDN to avoid cross-origin script issues.
   // Exposes window.io for gameClient.js
   (function loadSocketIo() {
