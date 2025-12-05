@@ -1,4 +1,3 @@
-'''require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
 const fs = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
@@ -128,11 +127,21 @@ function dispatchEvent(eventType, payload, sessionId) {
     return;
   }
 
+  // Create a clean, serializable copy of the payload
+  let cleanPayload;
+  try {
+    cleanPayload = JSON.parse(JSON.stringify(payload));
+  } catch (e) {
+    // If payload has circular references, try to extract only serializable properties
+    cleanPayload = payload;
+    console.warn(`[Dispatcher] Warning: Could not serialize payload, using as-is. Error: ${e.message}`);
+  }
+
   const event = {
     event_id: crypto.randomUUID(),
     event_type: eventType,
     session_id: sessionId,
-    body: payload,
+    body: cleanPayload,
   };
 
   // Fire-and-forget for each endpoint
@@ -193,4 +202,4 @@ module.exports = {
   dispatchEvent,
   resendDlqItem,
   DLQ_DIR, // Export for use in admin routes
-};''
+};
