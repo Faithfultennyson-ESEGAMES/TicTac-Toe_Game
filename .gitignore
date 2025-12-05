@@ -1,3 +1,5 @@
 
 bash
 .history/
+game-server/logs/
+game-server/dlq/
