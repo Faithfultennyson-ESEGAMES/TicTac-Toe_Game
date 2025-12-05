@@ -73,7 +73,7 @@ class GameClient {
       });
 
       this.socketManager.emit('join', {
-        sessionId: this.params.sessionId,
+        session_id: this.params.sessionId,
         playerId: this.localPlayer.id,
         playerName: this.localPlayer.name,
       });
@@ -317,7 +317,8 @@ class GameClient {
     this.moveLock = true;
     this.socketManager
       .makeMove({
-        sessionId: this.session.sessionId,
+        session_id: this.session.sessionId,
+        playerId: this.localPlayer.id,
         position: index,
       })
       .then((response) => {
@@ -443,4 +444,4 @@ class GameClient {
   }
 }
 
-export default GameClient;
+export default GameClient;n
