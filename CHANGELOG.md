@@ -1,3 +1,13 @@
+## 0.5.1 (Hotfix)
+
+### Fixes
+
+- **.env Configuration:** Corrected an issue where `RETRY_SCHEDULE_MS` had an incorrect number of values relative to `MAX_WEBHOOK_ATTEMPTS`, causing a server startup failure.
+- **Dispatcher Syntax:** Fixed a syntax error in `dispatcher.js` that was preventing the module from loading correctly.
+- **Circular Reference Crash:** Resolved a `TypeError` crash during webhook dispatch by ensuring the payload is a clean, serializable JSON object. This prevents non-serializable objects (like internal Node.js timers) from breaking the dispatch process.
+
+---
+
 ## 0.5.0 (Webhook Dispatcher & DLQ)
 
 ### Features
