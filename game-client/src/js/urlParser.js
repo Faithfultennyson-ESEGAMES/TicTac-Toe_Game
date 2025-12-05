@@ -8,10 +8,10 @@ const parseQueryParams = () => {
   let sessionId = null;
   if (join_url) {
     try {
-      const path = new URL(join_url).pathname; // Gets '/session/sess_123/join'
-      const match = path.match(/\/session\/(.*?)\/join/);
+      const path = new URL(join_url).pathname;
+      const match = path.match(/\/session\/(.*)/);
       if (match && match[1]) {
-        sessionId = match[1];
+        sessionId = match[1].replace(\/join$/, '');
       }
     } catch (e) {
       console.error(`[urlParser] Invalid join_url: ${join_url}`);
