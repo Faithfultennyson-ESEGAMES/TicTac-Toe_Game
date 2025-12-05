@@ -4,38 +4,37 @@ import SocketManager from "./socketManager.js";
 import { parseQueryParams, buildRejoinPayload } from "./urlParser.js";
 
 const STORAGE_KEY = 'ttt.session';
-const generatePlayerId = () => window.crypto?.randomUUID?.() || `player-${Math.random().toString(16).slice(2)}`;
 
 class GameClient {
   constructor() {
     this.ui = new UIManager();
     this.params = parseQueryParams();
     this.localPlayer = {
-      id: this.params.playerId || generatePlayerId(),
-      name: this.params.name,
-      stake: this.params.stake,
+      id: this.params.playerId,
+      name: this.params.playerName,
     };
 
     this.session = null;
     this.playerSymbol = null;
-    this.lifecycle = 'created';
+    this.gameState = 'created'; // created | waiting | playing | ended
     this.turnTick = null;
+    this.endScreenTimer = null;
     this.pendingDisconnect = null;
     this.moveLock = false;
-    this.isMuted = false;
     this.handlersAttached = false;
 
-    const serverPort = this.params.raw.get('serverPort') || '3001';
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-    const hostname = window.location.hostname || 'localhost';
-    const computedBase = `${protocol}//${hostname}:${serverPort}`;
-    this.socketUrl = window.__GAME_SERVER_BASE__ || computedBase;
+    let socketUrl;
+    try {
+      socketUrl = new URL(this.params.join_url).origin;
+    } catch (e) {
+      socketUrl = null;
+    }
+    this.socketUrl = socketUrl;
     this.apiBase = `${this.socketUrl}/api`;
     console.info('[GameClient] socket endpoint', this.socketUrl);
 
     this.socketManager = new SocketManager({
       url: this.socketUrl,
-      authToken: this.params.token,
       connectionCallbacks: {
         onStatusChange: (status, meta) => this.handleConnectionStatus(status, meta),
         onReconnectNeeded: () => this.attemptRejoin(),
@@ -47,30 +46,44 @@ class GameClient {
     await audioManager.init();
     this.bindUIEvents();
 
-    console.info('[GameClient] socket.io library present', typeof window.io);
+    if (!this.params.join_url || !this.params.sessionId || !this.localPlayer.id || !this.localPlayer.name) {
+      this.ui.showOverlay({
+        title: 'Invalid Link',
+        message: 'This game link is invalid or incomplete. Please reopen the game from the app.',
+        showSpinner: false,
+      });
+      return;
+    }
 
     this.ui.showOverlay({
-      title: 'Connecting to Lobby',
+      title: 'Connecting to Server',
       message: 'Preparing your game...',
       showSpinner: true,
     });
 
-    const healthOk = await this.probeServerHealth();
-    if (!healthOk) {
-      console.warn('[GameClient] Server health probe failed');
-    }
-
     try {
       await this.socketManager.connect();
       this.attachSocketHandlers();
-      await this.registerPlayer();
-      await this.startMatchmakingFlow();
+
+      this.gameState = 'waiting';
+      this.ui.showOverlay({
+        title: 'Connecting to Game',
+        message: 'Waiting for the other player to join.',
+        showSpinner: true,
+      });
+
+      this.socketManager.emit('join', {
+        sessionId: this.params.sessionId,
+        playerId: this.localPlayer.id,
+        playerName: this.localPlayer.name,
+      });
+
     } catch (error) {
       console.error('Failed to initialise game client', error);
       const reason = error?.message || 'Unknown error';
       this.ui.showOverlay({
         title: 'Connection Failed',
-        message: 'Unable to reach the game server (' + reason + '). Please try again.',
+        message: `Unable to reach the game server (${reason}). Please try again.`,
         actionLabel: 'Retry',
         actionHandler: () => this.reinitialise(),
         showSpinner: false,
@@ -81,26 +94,8 @@ class GameClient {
   bindUIEvents() {
     this.ui.bindBoardHandlers((index) => this.handleCellSelection(index));
 
-    document.getElementById('forfeit-btn').addEventListener('click', async () => {
-      if (!this.session) return;
-      const confirmed = window.confirm('Are you sure you want to forfeit the match?');
-      if (!confirmed) return;
-      await this.socketManager.forfeit(this.session.sessionId);
-    });
-
-    document.getElementById('mute-btn').addEventListener('click', () => {
-      this.isMuted = !this.isMuted;
-      this.ui.toggleAudio(this.isMuted);
-      this.ui.toast(this.isMuted ? 'Audio muted' : 'Audio enabled');
-    });
-
     document.getElementById('result-close-btn').addEventListener('click', () => {
       this.ui.hideResult();
-    });
-
-    document.getElementById('result-requeue-btn').addEventListener('click', async () => {
-      this.ui.hideResult();
-      await this.startMatchmakingFlow();
     });
   }
 
@@ -108,72 +103,6 @@ class GameClient {
     this.ui.hideOverlay();
     this.ui.markWinningCells([]);
     await this.init();
-  }
-
-  async registerPlayer() {
-    const response = await this.socketManager.registerPlayer({
-      id: this.localPlayer.id,
-      name: this.localPlayer.name,
-      stake: this.localPlayer.stake,
-    });
-
-    if (!response?.acknowledged) {
-      throw new Error('Registration failed');
-    }
-  }
-
-  async startMatchmakingFlow() {
-    const cachedSession = this.restoreSession();
-    if (cachedSession) {
-      await this.handleRejoin(cachedSession);
-      return;
-    }
-
-    this.ui.showOverlay({
-      title: 'Finding Match',
-      message: 'Joining the matchmaking queue...',
-      showSpinner: true,
-      actionLabel: 'Cancel',
-      actionHandler: async () => {
-        await this.socketManager.cancelQueue();
-        this.ui.showOverlay({
-          title: 'Queue Cancelled',
-          message: 'You left the matchmaking queue.',
-          showSpinner: false,
-          actionLabel: 'Rejoin Queue',
-          actionHandler: () => this.startMatchmakingFlow(),
-        });
-      },
-    });
-
-    const response = await this.socketManager.joinQueue({
-      id: this.localPlayer.id,
-      name: this.localPlayer.name,
-      stake: this.localPlayer.stake,
-    });
-
-    if (response.status === 'matched') {
-      this.handleGameFound(response.session);
-    } else if (response.status === 'queued') {
-      this.ui.showOverlay({
-        title: 'Waiting for Opponent',
-        message: `You are in queue (position ${response.position}).`,
-        showSpinner: true,
-        actionLabel: 'Cancel',
-        actionHandler: async () => {
-          await this.socketManager.cancelQueue();
-          this.ui.showOverlay({
-            title: 'Queue Cancelled',
-            message: 'You left the matchmaking queue.',
-            showSpinner: false,
-            actionLabel: 'Rejoin Queue',
-            actionHandler: () => this.startMatchmakingFlow(),
-          });
-        },
-      });
-    } else if (response.status === 'in-session') {
-      this.handleGameFound(response.session);
-    }
   }
 
   attachSocketHandlers() {
@@ -189,11 +118,15 @@ class GameClient {
   }
 
   handleGameFound(session) {
+    if (session.status === 'ended') {
+        this.handleGameEnded({ sessionId: session.sessionId });
+        return;
+    }
+
+    this.gameState = 'playing';
     this.session = { ...session };
     this.session.players = session.players;
     this.playerSymbol = this.resolvePlayerSymbol(session);
-    this.lifecycle = 'active';
-    this.session.status = 'active';
     this.persistSession();
 
     this.ui.hideOverlay();
@@ -213,7 +146,6 @@ class GameClient {
     if (!this.session || this.session.sessionId !== sessionId) return;
     this.session.currentTurn = currentTurn;
     this.session.turnExpiresAt = turnExpiresAt;
-    this.lifecycle = 'active';
     this.ui.updatePlayers(this.session.players);
     this.ui.setCurrentTurn(currentTurn, {});
     this.startTurnTimer(turnExpiresAt);
@@ -221,7 +153,6 @@ class GameClient {
 
   handleMoveApplied({ sessionId, board, moves, currentTurn, turnExpiresAt }) {
     if (!this.session || this.session.sessionId !== sessionId) return;
-    this.lifecycle = 'active';
     this.session.board = board;
     this.session.moves = moves;
     this.session.currentTurn = currentTurn;
@@ -237,35 +168,30 @@ class GameClient {
     this.startTurnTimer(turnExpiresAt);
   }
 
-  handleGameEnded({ sessionId, result, finalState }) {
-    if (!this.session || this.session.sessionId !== sessionId) return;
-    this.lifecycle = 'completed';
+  handleGameEnded({ sessionId }) {
+    if (this.gameState === 'ended') return;
+    this.gameState = 'ended';
     this.stopTurnTimer();
     this.ui.stopTimerWarning();
 
-    const state = finalState || this.session;
-    this.ui.setBoardState(state.board || Array(9).fill(null));
-    if (result?.winningLine) {
-      this.ui.markWinningCells(result.winningLine);
-    }
-
-    const isWinner = result?.winnerSymbol && this.playerSymbol === result.winnerSymbol;
-    const title = result?.outcome === 'draw' ? 'Draw Game' : isWinner ? 'Victory!' : 'Defeat';
-    const summary = this.describeResult(result);
-    this.ui.showResult({ title, summary });
-    this.ui.onGameEnded({
-      outcome: result?.outcome,
-      winnerSymbol: result?.winnerSymbol,
-      isLocalWinner: isWinner,
-    });
-
+    this.ui.showEndScreen();
     this.clearPersistedSession();
+
+    let seconds = 0;
+    this.ui.updateEndScreenTimer(seconds);
+
+    this.endScreenTimer = setInterval(() => {
+        seconds++;
+        this.ui.updateEndScreenTimer(seconds);
+        if (seconds >= 60) {
+            clearInterval(this.endScreenTimer);
+            this.ui.updateEndScreenMessage("Session window expired");
+        }
+    }, 1000);
   }
 
   handlePlayerDisconnected({ sessionId, symbol, disconnectExpiresAt }) {
     if (!this.session || this.session.sessionId !== sessionId) return;
-    this.lifecycle = 'disconnect_pending';
-    this.pendingDisconnect = { symbol, disconnectExpiresAt };
 
     if (this.session.players?.[symbol]) {
       this.session.players[symbol] = {
@@ -288,7 +214,15 @@ class GameClient {
   handleConnectionStatus(status) {
     if (status === 'connected') {
       this.ui.setConnectionStatus('connected', 'Connected');
-      this.ui.hideOverlay();
+      if (this.gameState === 'waiting') {
+         this.ui.showOverlay({
+            title: 'Connecting to Game',
+            message: 'Waiting for the other player to join.',
+            showSpinner: true,
+         });
+      } else {
+        this.ui.hideOverlay();
+      }
       return;
     }
 
@@ -307,21 +241,19 @@ class GameClient {
       });
       return;
     }
-
-    if (status === 'error') {
-      this.ui.setConnectionStatus('disconnected', 'Error');
-      this.ui.showOverlay({
-        title: 'Connection Issue',
-        message: 'Attempting to restore connection...',
-        showSpinner: true,
-      });
-    }
   }
 
   async attemptRejoin() {
     const cached = this.restoreSession();
     if (cached) {
       await this.handleRejoin(cached);
+    } else {
+        // If no session to rejoin, we are stuck.
+        this.ui.showOverlay({
+            title: 'Link Required',
+            message: 'Please use a valid game link to join a session.',
+            showSpinner: false,
+        });
     }
   }
 
@@ -342,10 +274,8 @@ class GameClient {
       this.clearPersistedSession();
       this.ui.showOverlay({
         title: 'Session Unavailable',
-        message: 'Previous session not found. Returning to matchmaking.',
+        message: 'Previous session not found or has ended.',
         showSpinner: false,
-        actionLabel: 'Find Match',
-        actionHandler: () => this.startMatchmakingFlow(),
       });
       return;
     }
@@ -360,16 +290,17 @@ class GameClient {
       this.clearPersistedSession();
       this.ui.showOverlay({
         title: 'Session Unavailable',
-        message: 'Unable to load session state. Returning to matchmaking.',
+        message: 'Unable to load session state.',
         showSpinner: false,
-        actionLabel: 'Find Match',
-        actionHandler: () => this.startMatchmakingFlow(),
       });
     }
   }
 
   handleCellSelection(index) {
-    if (!this.session || this.lifecycle === 'completed') {
+    if (this.gameState !== 'playing') {
+      return;
+    }
+    if (!this.session) {
       return;
     }
     if (this.playerSymbol !== this.session.currentTurn) {
@@ -408,18 +339,6 @@ class GameClient {
     return null;
   }
 
-  describeResult(result = {}) {
-    if (!result.outcome) return 'Match ended.';
-    if (result.outcome === 'draw') return 'Neither player achieved three in a row.';
-    if (result.outcome === 'forfeit') {
-      if (result.reason === 'disconnect_timeout') return `${result.forfeitedSymbol} did not reconnect in time.`;
-      if (result.reason === 'turn_timeout') return `${result.forfeitedSymbol} ran out of time.`;
-      return `${result.forfeitedSymbol} forfeited.`;
-    }
-    if (result.outcome === 'win') return `${result.winnerSymbol} achieved three in a row.`;
-    return 'Game concluded.';
-  }
-
   describeMoveError(code) {
     const map = {
       invalid_payload: 'Invalid move payload.',
@@ -453,7 +372,6 @@ class GameClient {
         this.ui.startTimerWarning();
       } else if (seconds <= 20) {
         state = 'warning';
-        this.ui.startTimerWarning();
       } else {
         this.ui.stopTimerWarning();
       }
@@ -511,22 +429,6 @@ class GameClient {
     setTimeout(() => this.ui.boardEl.classList.remove('shake'), 350);
   }
 
-  async probeServerHealth() {
-    try {
-      const response = await fetch(`${this.apiBase}/status`, { cache: "no-store" });
-      if (!response.ok) {
-        console.warn('[GameClient] status endpoint responded with', response.status);
-        return false;
-      }
-      const status = await response.json();
-      console.info('[GameClient] status probe success', status);
-      return true;
-    } catch (error) {
-      console.error('[GameClient] status probe failed', error);
-      return false;
-    }
-  }
-
   async fetchSessionState(sessionId) {
     try {
       const response = await fetch(`${this.apiBase}/session/${sessionId}`);
@@ -542,9 +444,3 @@ class GameClient {
 }
 
 export default GameClient;
-
-
-
-
-
-

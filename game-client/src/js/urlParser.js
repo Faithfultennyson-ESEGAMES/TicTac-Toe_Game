@@ -1,18 +1,28 @@
 const parseQueryParams = () => {
   const params = new URLSearchParams(window.location.search);
 
-  const playerId = params.get('playerId') || params.get('userId') || '';
-  const name = params.get('name') || 'Guest';
-  const stake = Number(params.get('stake') || 0);
-  const sessionId = params.get('sessionId') || null;
-  const token = params.get('token') || null;
+  const join_url = params.get('join_url');
+  const playerId = params.get('player_id');
+  const playerName = params.get('player_name');
+
+  let sessionId = null;
+  if (join_url) {
+    try {
+      const path = new URL(join_url).pathname; // Gets '/session/sess_123/join'
+      const match = path.match(/\/session\/(.*?)\/join/);
+      if (match && match[1]) {
+        sessionId = match[1];
+      }
+    } catch (e) {
+      console.error(`[urlParser] Invalid join_url: ${join_url}`);
+    }
+  }
 
   return {
-    playerId,
-    name,
-    stake,
+    join_url,
     sessionId,
-    token,
+    playerId,
+    playerName,
     raw: params,
   };
 };
