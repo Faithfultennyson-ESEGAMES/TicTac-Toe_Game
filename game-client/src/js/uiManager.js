@@ -12,6 +12,10 @@ class UIManager {
       X: document.getElementById('player-x-name'),
       O: document.getElementById('player-o-name'),
     };
+    this.playerStakes = {
+      X: document.getElementById('player-x-stake'),
+      O: document.getElementById('player-o-stake'),
+    };
     this.turnTextEl = document.getElementById('turn-text');
     this.timerEl = document.getElementById('turn-timer');
     this.statusIndicator = document.getElementById('status-indicator');
@@ -24,7 +28,6 @@ class UIManager {
     this.resultModal = document.getElementById('result-modal');
     this.resultTitle = document.getElementById('result-title');
     this.resultSummary = document.getElementById('result-summary');
-    this.endScreenTimerEl = document.getElementById('end-screen-timer');
     this.toastEl = null;
   }
 
@@ -34,7 +37,6 @@ class UIManager {
         handler(Number(cell.dataset.index));
       });
     });
-    this.boardEl.classList.add('disabled'); // Disable board initially
   }
 
   setBoardState(board) {
@@ -50,7 +52,6 @@ class UIManager {
       cell.textContent = value;
       cell.dataset.symbol = value;
     });
-    this.boardEl.classList.remove('disabled'); // Enable board on state update
   }
 
   markWinningCells(cells = []) {
@@ -68,6 +69,7 @@ class UIManager {
       const card = this.playerCards[symbol];
       const info = players[symbol] || {};
       this.playerNames[symbol].textContent = info.name || 'Waiting...';
+      this.playerStakes[symbol].textContent = info.stake ? `${info.stake} credits` : '';
       card.classList.toggle('disconnected', info.connected === false);
     });
   }
@@ -116,7 +118,6 @@ class UIManager {
     this.overlay.classList.add('hidden');
   }
 
-  // Kept for backward compatibility if any other part calls it.
   showResult({ title, summary }) {
     this.resultTitle.textContent = title;
     this.resultSummary.textContent = summary;
@@ -125,24 +126,6 @@ class UIManager {
 
   hideResult() {
     this.resultModal.classList.add('hidden');
-  }
-
-  showEndScreen() {
-    this.resultTitle.textContent = "Game has ended";
-    this.resultSummary.textContent = ""; // Clear previous summary
-    this.resultModal.classList.remove('hidden');
-  }
-
-  updateEndScreenTimer(seconds) {
-    if (this.endScreenTimerEl) {
-        this.endScreenTimerEl.textContent = `Time since end: ${seconds}s`;
-    }
-  }
-
-  updateEndScreenMessage(message) {
-    if (this.resultSummary) {
-        this.resultSummary.textContent = message;
-    }
   }
 
   toast(message, duration = 2500) {
@@ -173,6 +156,10 @@ class UIManager {
     } else {
       audioManager.play('gameLost');
     }
+  }
+
+  toggleAudio(muted) {
+    audioManager.setMuted(muted);
   }
 
   stopTimerWarning() {

@@ -1,3 +1,4 @@
+import debug from './debug.js';
 import audioManager from "./audioManager.js";
 import UIManager from "./uiManager.js";
 import SocketManager from "./socketManager.js";
@@ -19,7 +20,6 @@ class GameClient {
     this.gameState = 'created'; // created | waiting | playing | ended
     this.turnTick = null;
     this.endScreenTimer = null;
-    this.pendingDisconnect = null;
     this.moveLock = false;
     this.handlersAttached = false;
 
@@ -30,13 +30,13 @@ class GameClient {
       socketUrl = null;
     }
     this.socketUrl = socketUrl;
-    this.apiBase = `${this.socketUrl}/api`;
-    console.info('[GameClient] socket endpoint', this.socketUrl);
+    this.apiBase = this.socketUrl ? `${this.socketUrl}/api` : '';
+    debug.log('[GameClient] Target server:', this.socketUrl);
 
     this.socketManager = new SocketManager({
       url: this.socketUrl,
       connectionCallbacks: {
-        onStatusChange: (status, meta) => this.handleConnectionStatus(status, meta),
+        onStatusChange: (status) => this.handleConnectionStatus(status),
         onReconnectNeeded: () => this.attemptRejoin(),
       },
     });
@@ -47,9 +47,10 @@ class GameClient {
     this.bindUIEvents();
 
     if (!this.params.join_url || !this.params.sessionId || !this.localPlayer.id || !this.localPlayer.name) {
+      debug.error('[GameClient] Invalid join parameters. All are required.', this.params);
       this.ui.showOverlay({
         title: 'Invalid Link',
-        message: 'This game link is invalid or incomplete. Please reopen the game from the app.',
+        message: 'This game link is incomplete. Please ensure you have a valid join_url, player_id, and player_name.',
         showSpinner: false,
       });
       return;
@@ -67,25 +68,26 @@ class GameClient {
 
       this.gameState = 'waiting';
       this.ui.showOverlay({
-        title: 'Connecting to Game',
+        title: 'Joining Game Session',
         message: 'Waiting for the other player to join.',
         showSpinner: true,
       });
 
-      this.socketManager.emit('join', {
+      const joinPayload = {
         session_id: this.params.sessionId,
-        playerId: this.localPlayer.id,
-        playerName: this.localPlayer.name,
-      });
+        player_id: this.localPlayer.id,       // Corrected to snake_case
+        player_name: this.localPlayer.name,     // Corrected to snake_case
+      };
+
+      debug.log('[GameClient] Emitting join event with payload:', joinPayload);
+      this.socketManager.emit('join', joinPayload);
 
     } catch (error) {
-      console.error('Failed to initialise game client', error);
+      debug.error('[GameClient] Initialization failed:', error);
       const reason = error?.message || 'Unknown error';
       this.ui.showOverlay({
         title: 'Connection Failed',
-        message: `Unable to reach the game server (${reason}). Please try again.`,
-        actionLabel: 'Retry',
-        actionHandler: () => this.reinitialise(),
+        message: `Could not connect to the game server (${reason}). Please check the link and try again.`,
         showSpinner: false,
       });
     }
@@ -93,39 +95,31 @@ class GameClient {
 
   bindUIEvents() {
     this.ui.bindBoardHandlers((index) => this.handleCellSelection(index));
-
-    document.getElementById('result-close-btn').addEventListener('click', () => {
-      this.ui.hideResult();
-    });
-  }
-
-  async reinitialise() {
-    this.ui.hideOverlay();
-    this.ui.markWinningCells([]);
-    await this.init();
+    document.getElementById('result-close-btn').addEventListener('click', () => this.ui.hideResult());
   }
 
   attachSocketHandlers() {
     if (this.handlersAttached) return;
     this.handlersAttached = true;
+    debug.log('[GameClient] Attaching socket event handlers.');
 
-    this.socketManager.on('game-found', (payload) => this.handleGameFound(payload.state || payload));
+    this.socketManager.on('game-found', (payload) => this.handleGameFound(payload));
     this.socketManager.on('turn-started', (payload) => this.handleTurnStarted(payload));
     this.socketManager.on('move-applied', (payload) => this.handleMoveApplied(payload));
     this.socketManager.on('game-ended', (payload) => this.handleGameEnded(payload));
-    this.socketManager.on('player-disconnected', (payload) => this.handlePlayerDisconnected(payload));
-    this.socketManager.on('disconnect_timeout', (payload) => this.handleDisconnectTimeout(payload));
+    this.socketManager.on('player-disconnected', (payload) => this.handlePlayerStatusUpdate(payload, 'disconnected'));
+    this.socketManager.on('player-reconnected', (payload) => this.handlePlayerStatusUpdate(payload, 'reconnected'));
   }
 
   handleGameFound(session) {
+    debug.log('[GameClient] Game found. Session state:', session);
     if (session.status === 'ended') {
-        this.handleGameEnded({ sessionId: session.sessionId });
-        return;
+      this.handleGameEnded({ session_id: session.session_id });
+      return;
     }
 
     this.gameState = 'playing';
     this.session = { ...session };
-    this.session.players = session.players;
     this.playerSymbol = this.resolvePlayerSymbol(session);
     this.persistSession();
 
@@ -133,30 +127,31 @@ class GameClient {
     this.ui.markWinningCells([]);
     this.ui.updatePlayers(session.players);
     this.ui.setBoardState(session.board || Array(9).fill(null));
-    this.ui.setCurrentTurn(session.currentTurn, { message: 'Game starting...' });
+    this.ui.setCurrentTurn(session.current_turn, { message: 'Game starting!' });
 
-    if (session.turnExpiresAt) {
-      this.startTurnTimer(session.turnExpiresAt);
+    if (session.turn_expires_at) {
+      this.startTurnTimer(session.turn_expires_at);
     } else {
       this.ui.updateTimer('--');
     }
   }
 
-  handleTurnStarted({ sessionId, currentTurn, turnExpiresAt }) {
-    if (!this.session || this.session.sessionId !== sessionId) return;
-    this.session.currentTurn = currentTurn;
-    this.session.turnExpiresAt = turnExpiresAt;
-    this.ui.updatePlayers(this.session.players);
-    this.ui.setCurrentTurn(currentTurn, {});
-    this.startTurnTimer(turnExpiresAt);
+  handleTurnStarted({ session_id, current_turn, turn_expires_at }) {
+    if (!this.session || this.session.session_id !== session_id) return;
+    debug.log(`[GameClient] Turn started for ${current_turn}`);
+    this.session.current_turn = current_turn;
+    this.session.turn_expires_at = turn_expires_at;
+    this.ui.setCurrentTurn(current_turn, {});
+    this.startTurnTimer(turn_expires_at);
   }
 
-  handleMoveApplied({ sessionId, board, moves, currentTurn, turnExpiresAt }) {
-    if (!this.session || this.session.sessionId !== sessionId) return;
+  handleMoveApplied({ session_id, board, moves, current_turn, turn_expires_at }) {
+    if (!this.session || this.session.session_id !== session_id) return;
+    debug.log('[GameClient] Move applied. New board state:', board);
     this.session.board = board;
     this.session.moves = moves;
-    this.session.currentTurn = currentTurn;
-    this.session.turnExpiresAt = turnExpiresAt;
+    this.session.current_turn = current_turn;
+    this.session.turn_expires_at = turn_expires_at;
 
     const lastMove = moves?.[moves.length - 1];
     if (lastMove) {
@@ -164,22 +159,24 @@ class GameClient {
     }
 
     this.ui.setBoardState(board);
-    this.ui.setCurrentTurn(currentTurn, {});
-    this.startTurnTimer(turnExpiresAt);
+    this.ui.setCurrentTurn(current_turn, {});
+    this.startTurnTimer(turn_expires_at);
   }
 
-  handleGameEnded({ sessionId }) {
+  handleGameEnded({ session_id }) {
     if (this.gameState === 'ended') return;
+    debug.log('[GameClient] Game ended notification received.');
     this.gameState = 'ended';
     this.stopTurnTimer();
     this.ui.stopTimerWarning();
 
+    // Per spec, client shows a neutral end screen, not win/loss.
     this.ui.showEndScreen();
     this.clearPersistedSession();
 
+    // Start a simple timer on the end screen.
     let seconds = 0;
     this.ui.updateEndScreenTimer(seconds);
-
     this.endScreenTimer = setInterval(() => {
         seconds++;
         this.ui.updateEndScreenTimer(seconds);
@@ -190,146 +187,115 @@ class GameClient {
     }, 1000);
   }
 
-  handlePlayerDisconnected({ sessionId, symbol, disconnectExpiresAt }) {
-    if (!this.session || this.session.sessionId !== sessionId) return;
+  handlePlayerStatusUpdate({ player_id, status }, type) {
+    if (!this.session) return;
+    debug.log(`[GameClient] Player ${player_id} is now ${type}`);
 
-    if (this.session.players?.[symbol]) {
-      this.session.players[symbol] = {
-        ...this.session.players[symbol],
-        connected: false,
-      };
+    const player = Object.values(this.session.players).find(p => p.id === player_id);
+    if (player) {
+      player.connected = (type === 'reconnected');
+      this.ui.updatePlayers(this.session.players);
+      this.ui.toast(`Player ${player.name} has ${type}.`);
     }
-
-    this.ui.updatePlayers(this.session.players);
-
-    const remaining = this.formatCountdown(disconnectExpiresAt);
-    this.ui.toast(`Player ${symbol} disconnected. Forfeit in ${remaining}.`);
-  }
-
-  handleDisconnectTimeout({ sessionId }) {
-    if (!this.session || this.session.sessionId !== sessionId) return;
-    this.ui.toast('Opponent did not return in time.');
   }
 
   handleConnectionStatus(status) {
+    debug.log(`[GameClient] Connection status changed to: ${status}`);
+    this.ui.setConnectionStatus(status, status.charAt(0).toUpperCase() + status.slice(1));
+
     if (status === 'connected') {
-      this.ui.setConnectionStatus('connected', 'Connected');
       if (this.gameState === 'waiting') {
          this.ui.showOverlay({
-            title: 'Connecting to Game',
+            title: 'Joining Game Session',
             message: 'Waiting for the other player to join.',
             showSpinner: true,
          });
       } else {
         this.ui.hideOverlay();
       }
-      return;
-    }
-
-    if (status === 'reconnecting') {
-      this.ui.setConnectionStatus('connecting', 'Reconnecting...');
-      return;
-    }
-
-    if (status === 'disconnected') {
-      this.ui.setConnectionStatus('disconnected', 'Disconnected');
-      this.ui.toast('Connection lost. Attempting to reconnect...');
+    } else if (status === 'disconnected' || status === 'reconnecting') {
       this.ui.showOverlay({
         title: 'Connection Lost',
         message: 'Attempting to restore connection...',
         showSpinner: true,
       });
-      return;
     }
   }
 
   async attemptRejoin() {
+    debug.log('[GameClient] Attempting to rejoin session.');
     const cached = this.restoreSession();
-    if (cached) {
-      await this.handleRejoin(cached);
-    } else {
-        // If no session to rejoin, we are stuck.
+    if (!cached) {
+        debug.warn('[GameClient] No session found in storage to rejoin.');
         this.ui.showOverlay({
-            title: 'Link Required',
-            message: 'Please use a valid game link to join a session.',
+            title: 'Cannot Rejoin',
+            message: 'No previous session data found. Please use a valid game link to join.',
             showSpinner: false,
         });
+        return;
     }
-  }
 
-  async handleRejoin(cachedSession) {
     this.ui.showOverlay({
-      title: 'Rejoining Match',
-      message: 'Attempting to rejoin your previous session...',
+      title: 'Rejoining Session',
+      message: 'Attempting to reconnect to your previous game...',
       showSpinner: true,
     });
 
-    const payload = buildRejoinPayload({
-      sessionId: cachedSession.sessionId,
-      playerId: cachedSession.playerId,
-    });
+    // Reconnect socket before fetching state
+    await this.socketManager.connect();
 
-    const response = await this.socketManager.rejoinSession(payload);
-    if (!response?.ok) {
-      this.clearPersistedSession();
-      this.ui.showOverlay({
-        title: 'Session Unavailable',
-        message: 'Previous session not found or has ended.',
-        showSpinner: false,
-      });
-      return;
-    }
-
-    const state = await this.fetchSessionState(payload.sessionId);
-    if (state) {
+    // Now fetch the latest state from the server
+    const state = await this.fetchSessionState(cached.sessionId);
+    if (state && state.status !== 'ended') {
       this.handleGameFound(state);
-      this.playerSymbol = response.symbol || this.resolvePlayerSymbol(state);
-      this.persistSession();
+      this.playerSymbol = this.resolvePlayerSymbol(state);
+      this.persistSession(); // Re-persist with the latest data
       this.ui.toast('Successfully rejoined match.');
+      debug.log('[GameClient] Rejoin successful.');
     } else {
       this.clearPersistedSession();
       this.ui.showOverlay({
         title: 'Session Unavailable',
-        message: 'Unable to load session state.',
+        message: 'The previous session has ended or could not be found.',
         showSpinner: false,
       });
+      debug.warn('[GameClient] Rejoin failed: Session ended or not found.');
     }
   }
 
   handleCellSelection(index) {
-    if (this.gameState !== 'playing') {
+    if (this.gameState !== 'playing' || !this.session || this.moveLock) {
       return;
     }
-    if (!this.session) {
+    if (this.playerSymbol !== this.session.current_turn) {
+      this.ui.toast('Not your turn.');
       return;
     }
-    if (this.playerSymbol !== this.session.currentTurn) {
-      this.ui.toast('Not your turn yet.');
+    if (this.session.board[index]) {
+      this.ui.toast('Cell already taken.');
       return;
     }
-    if (Array.isArray(this.session.board) && this.session.board[index]) {
-      this.ui.toast('Cell already occupied.');
-      this.cellsShake();
-      return;
-    }
-    if (this.moveLock) return;
 
     this.moveLock = true;
-    this.socketManager
-      .makeMove({
-        session_id: this.session.sessionId,
-        playerId: this.localPlayer.id,
-        position: index,
-      })
-      .then((response) => {
+    const movePayload = {
+      session_id: this.session.session_id,
+      player_id: this.localPlayer.id,
+      position: index,
+    };
+    debug.log('[GameClient] Emitting make-move event:', movePayload);
+
+    this.socketManager.makeMove(movePayload)
+      .then(response => {
         this.moveLock = false;
         if (response?.error) {
+          debug.warn('[GameClient] Move rejected by server:', response.error);
           this.ui.toast(this.describeMoveError(response.error));
         }
       })
-      .catch(() => {
+      .catch(err => {
         this.moveLock = false;
-        this.ui.toast('Failed to submit move.');
+        debug.error('[GameClient] Failed to submit move:', err);
+        this.ui.toast('Move submission failed.');
       });
   }
 
@@ -342,15 +308,15 @@ class GameClient {
 
   describeMoveError(code) {
     const map = {
-      invalid_payload: 'Invalid move payload.',
+      invalid_payload: 'Invalid move data.',
       session_not_found: 'Session not found.',
-      session_not_active: 'Session not active.',
+      session_not_active: 'Session is not active.',
       not_player_turn: "It isn't your turn yet.",
-      invalid_position: 'Invalid cell.',
-      cell_occupied: 'Cell already occupied.',
-      player_not_in_session: 'Player not in session.',
+      invalid_position: 'That cell is invalid.',
+      cell_occupied: 'That cell is already taken.',
+      player_not_in_session: 'You are not in this session.',
     };
-    return map[code] || 'Move rejected.';
+    return map[code] || 'Move was rejected.';
   }
 
   startTurnTimer(turnExpiresAt) {
@@ -359,33 +325,14 @@ class GameClient {
       this.ui.updateTimer('--');
       return;
     }
-
     const expiry = new Date(turnExpiresAt).getTime();
-    const tick = () => {
+    this.turnTick = setInterval(() => {
       const remaining = Math.max(0, expiry - Date.now());
       const seconds = Math.ceil(remaining / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const secs = String(seconds % 60).padStart(2, '0');
-
-      let state = 'normal';
-      if (seconds <= 10) {
-        state = 'danger';
-        this.ui.startTimerWarning();
-      } else if (seconds <= 20) {
-        state = 'warning';
-      } else {
-        this.ui.stopTimerWarning();
-      }
-
-      this.ui.updateTimer(`${minutes}:${secs}`, state);
-      if (remaining <= 0) {
-        this.stopTurnTimer();
-        this.ui.stopTimerWarning();
-      }
-    };
-
-    tick();
-    this.turnTick = setInterval(tick, 1000);
+      const display = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+      this.ui.updateTimer(display, seconds <= 10 ? 'danger' : seconds <= 20 ? 'warning' : 'normal');
+      if (remaining <= 0) this.stopTurnTimer();
+    }, 500);
   }
 
   stopTurnTimer() {
@@ -393,55 +340,46 @@ class GameClient {
     this.turnTick = null;
   }
 
-  formatCountdown(expiresAt) {
-    const remaining = Math.max(0, new Date(expiresAt).getTime() - Date.now());
-    const seconds = Math.ceil(remaining / 1000);
-    return `${seconds}s`;
-  }
-
   persistSession() {
-    sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        sessionId: this.session.sessionId,
-        playerId: this.localPlayer.id,
-        symbol: this.playerSymbol,
-      }),
-    );
+    if (!this.session || !this.localPlayer.id || !this.playerSymbol) return;
+    const data = JSON.stringify({
+      sessionId: this.session.session_id,
+      playerId: this.localPlayer.id,
+      symbol: this.playerSymbol,
+    });
+    sessionStorage.setItem(STORAGE_KEY, data);
+    debug.log('[GameClient] Session persisted to storage.');
   }
 
   restoreSession() {
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
-      return JSON.parse(raw);
+      const data = JSON.parse(raw);
+      debug.log('[GameClient] Session restored from storage:', data);
+      return data;
     } catch (error) {
-      console.warn('Failed to restore session', error);
+      debug.warn('[GameClient] Failed to restore session:', error);
       return null;
     }
   }
 
   clearPersistedSession() {
     sessionStorage.removeItem(STORAGE_KEY);
-  }
-
-  cellsShake() {
-    this.ui.boardEl.classList.add('shake');
-    setTimeout(() => this.ui.boardEl.classList.remove('shake'), 350);
+    debug.log('[GameClient] Cleared persisted session from storage.');
   }
 
   async fetchSessionState(sessionId) {
+    if (!this.apiBase) return null;
     try {
       const response = await fetch(`${this.apiBase}/session/${sessionId}`);
-      if (!response.ok) {
-        return null;
-      }
-      return response.json();
+      if (!response.ok) return null;
+      return await response.json();
     } catch (error) {
-      console.warn('Failed to fetch session state', error);
+      debug.error('[GameClient] Failed to fetch session state:', error);
       return null;
     }
   }
 }
 
-export default GameClient;n
+export default GameClient;
