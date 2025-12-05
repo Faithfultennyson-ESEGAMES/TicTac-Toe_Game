@@ -2,6 +2,10 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
+const { validateEnv } = require('./src/config/validateEnv');
+
+// --- Validate Environment Variables before doing anything else ---
+validateEnv();
 
 const httpRoutes = require('./src/http/routes');
 const adminDlqRoutes = require('./src/http/admin_dlq_routes'); // Import admin routes
