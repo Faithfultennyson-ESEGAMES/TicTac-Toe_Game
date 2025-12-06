@@ -28,17 +28,28 @@
         const playersContainer = document.getElementById('players-container');
 
         function createPlayerInstance(playerId, playerName) {
+            // --- Rewritten DOM Creation Logic ---
             const card = document.createElement('div');
             card.className = 'player-card';
-            card.innerHTML = `
-                <div class="player-header">Player: ${playerName} (${playerId})</div>
-                <button id="btn-${playerId}">Request Match</button>
-                <div class="log-container" id="log-${playerId}"></div>
-            `;
-            playersContainer.appendChild(card);
 
-            const logContainer = document.getElementById(`log-${playerId}`);
-            const button = document.getElementById(`btn-${playerId}`);
+            const header = document.createElement('div');
+            header.className = 'player-header';
+            header.textContent = `Player: ${playerName} (${playerId})`;
+
+            const button = document.createElement('button');
+            button.id = `btn-${playerId}`;
+            button.textContent = 'Request Match';
+
+            const logContainer = document.createElement('div');
+            logContainer.id = `log-${playerId}`;
+            logContainer.className = 'log-container';
+
+            card.appendChild(header);
+            card.appendChild(button);
+            card.appendChild(logContainer);
+            playersContainer.appendChild(card);
+            // --- End of Rewritten Logic ---
+
             let socket = null;
 
             function log(message, type = 'info') {
