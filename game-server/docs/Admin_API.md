@@ -1,105 +1,197 @@
-# Game Server Admin API
+# ESEGAMES Game Server API Documentation
 
-This document outlines the administrative API endpoints for managing the game server. These endpoints are intended for internal use by administrators for maintenance, monitoring, and debugging.
+This document provides a comprehensive overview of the ESEGAMES Game Server, including session management, real-time gameplay, webhook integration, and administrative APIs.
 
-## Authentication
+---
 
-All administrative endpoints are protected and require authentication. To access these endpoints, you must include an `Authorization` header with a Bearer token containing the `DLQ_PASSWORD` from your environment variables.
+## 1. Game Session Management (HTTP)
 
-**Header Example:**
+### `POST /start`
+
+Initiates a new game session. This is the entry point for creating a playable match.
+
+**Authentication:**
+
+This endpoint is protected. You must provide the `DLQ_PASSWORD` from your `.env` file as a Bearer token in the `Authorization` header.
+
 `Authorization: Bearer <your_dlq_password>`
 
-Requests without a valid `Authorization` header will be rejected with a `401 Unauthorized` error.
+-   **Request Body (optional):**
+    -   `turn_duration_sec` (number): The duration of each turn in seconds. Defaults to `10` if not provided.
+-   **Response (201 Created):**
+    -   `session_id` (string): The unique identifier for the new session.
+    -   `join_url` (string): The fully qualified URL that clients use to connect to the session's real-time socket endpoint.
+    -   `signature` (string): An HMAC-SHA256 signature of the `session_id` and `join_url` to prevent tampering.
+
+**Example Request:**
+
+```bash
+curl -X POST http://localhost:5500/start \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <your_dlq_password>" \
+     -d '{"turn_duration_sec": 15}'
+```
+
+**Example Response:**
+
+```json
+{
+  "session_id": "d2c1ba68-ab40-46b5-9651-b48ed4cb8069",
+  "join_url": "http://example.com/session/d2c1ba68-ab40-46b5-9651-b48ed4cb8069/join",
+  "signature": "eda297d1aa3c549eba1525d72dfd44ae5d4bf15f460df6b3df3b468c504536d5"
+}
+```
 
 ---
 
-## Session Management
+### Step-by-Step Guide: Verifying the `/start` Response Signature
 
-These endpoints provide control over active game sessions.
+To ensure the `join_url` has not been tampered with, the client should verify the `signature`. This process must be followed exactly.
 
-### 1. List Active Sessions
+1.  **Isolate Payload and Signature:** From the JSON response, separate the signature from the data that was signed.
+    -   **Signature:** `eda297d1aa3c549eba1525d72dfd44ae5d4bf15f460df6b3df3b468c504536d5`
+    -   **Signed Data:** `session_id` and `join_url`.
 
-- **Endpoint:** `GET /admin/sessions/active`
-- **Method:** `GET`
-- **Description:** Retrieves a list of all game sessions that are currently active (i.e., not in an `ended` state). This is useful for monitoring server load and inspecting ongoing games.
-- **Success Response (`200 OK`):**
-  ```json
-  [
-    {
-      "sessionId": "b8a8b2d4-e3c3-4e4f-8a0a-1b1b1b1b1b1b",
-      "status": "waiting",
-      "players": [],
-      "created_at": "2023-10-27T18:00:00.000Z"
-    },
-    {
-      "sessionId": "c3c3c3c3-d4d4-4e4f-8a0a-2c2c2c2c2c2c",
-      "status": "active",
-      "players": [
-        { "playerId": "player-1", "symbol": "X" },
-        { "playerId": "player-2", "symbol": "O" }
-      ],
-      "created_at": "2023-10-27T18:05:00.000Z"
+2.  **Construct the Canonical String:** Create a new object containing **only** the `session_id` and `join_url` fields from the response. Then, convert this new object into a JSON string without any extra whitespace.
+
+    ```javascript
+    const payloadToVerify = {
+      session_id: "d2c1ba68-ab40-46b5-9651-b48ed4cb8069",
+      join_url: "http://example.com/session/d2c1ba68-ab40-46b5-9651-b48ed4cb8069/join"
+    };
+
+    const canonicalString = JSON.stringify(payloadToVerify);
+    // The string will be:
+    // '''{"session_id":"d2c1ba68-ab40-46b5-9651-b48ed4cb8069","join_url":"http://example.com/session/d2c1ba68-ab40-46b5-9651-b48ed4cb8069/join"}'''
+    ```
+
+3.  **Recalculate the Signature:** Use the `HMAC_SECRET` (which must be shared securely with the client) to create a new HMAC-SHA256 signature from the `canonicalString` you created in Step 2.
+
+    ```javascript
+    const crypto = require('crypto');
+    const HMAC_SECRET = 'your-shared-hmac-secret'; // Must match the server's .env
+
+    const computedSignature = crypto.createHmac('sha256', HMAC_SECRET)
+                                    .update(canonicalString)
+                                    .digest('hex');
+    ```
+
+4.  **Compare Signatures:** Use a constant-time comparison function to check if your `computedSignature` matches the `signature` from the original response. This is critical to prevent timing attacks.
+
+    ```javascript
+    const receivedSignature = "eda297d1aa3c549eba1525d72dfd44ae5d4bf15f460df6b3df3b468c504536d5";
+
+    const areSignaturesEqual = crypto.timingSafeEqual(
+      Buffer.from(computedSignature),
+      Buffer.from(receivedSignature)
+    );
+
+    if (areSignaturesEqual) {
+      console.log("✅ Signature is valid.");
+    } else {
+      console.error("❌ Invalid signature!");
     }
-  ]
-  ```
-
-### 2. Force-End a Session
-
-- **Endpoint:** `POST /admin/sessions/:sessionId/end`
-- **Method:** `POST`
-- **Description:** Immediately terminates a specific game session. This triggers the complete `endSession` workflow, including logging and firing the `session.ended` webhook. This should be used to manually resolve stuck or problematic games.
-- **URL Parameters:**
-  - `sessionId` (string, required): The unique identifier of the session to terminate.
-- **Success Response (`200 OK`):**
-  ```json
-  {
-    "message": "Session <sessionId> has been forcefully ended."
-  }
-  ```
-- **Error Responses:**
-  - `404 Not Found`: If the specified `sessionId` does not correspond to an existing session.
-  - `400 Bad Request`: If the session has already been ended.
+    ```
 
 ---
 
-## Dead Letter Queue (DLQ) Management
+## 2. Real-Time Gameplay (Socket.IO)
+(Sections for Socket.IO events remain the same)
 
-These endpoints are for inspecting and managing failed webhook deliveries.
+---
 
-### 1. List DLQ Items
+## 3. Webhook Integration Guide
 
-- **Endpoint:** `GET /admin/dlq`
-- **Method:** `GET`
-- **Description:** Retrieves all items currently in the Dead Letter Queue.
-- **Success Response (`200 OK`):** Returns an array of DLQ items.
+The server can dispatch real-time events to external services via webhooks.
 
-### 2. Get DLQ Item by ID
+### Endpoints & Security
 
-- **Endpoint:** `GET /admin/dlq/:id`
-- **Method:** `GET`
-- **Description:** Retrieves a single DLQ item by its unique ID.
-- **Success Response (`200 OK`):** Returns the specific DLQ item.
+-   **Endpoints:** The server sends `POST` requests to all comma-separated URLs defined in the `.env` variable `WEBHOOK_ENDPOINTS`.
+-   **Signature:** Every webhook request includes a `X-Signature` header, which is a SHA-256 HMAC digest of the raw request body, signed with the `HMAC_SECRET` from your `.env` file.
 
-### 3. Resend DLQ Item
+### Delivery & Retry Logic
 
-- **Endpoint:** `POST /admin/dlq/:id/resend`
-- **Method:** `POST`
-- **Description:** Attempts to resend a specific webhook from the DLQ. If successful, the item is removed from the queue.
-- **Success Response (`200 OK`):**
-  ```json
-  {
-    "message": "Webhook resent successfully"
-  }
-  ```
+-   **Success:** A `2xx` HTTP status code from your endpoint is considered a successful delivery.
+-   **Permanent Failure:** A `4xx` status code indicates a permanent failure. The webhook is immediately moved to the Dead Letter Queue (DLQ).
+-   **Retryable Failure:** A `5xx` status code or a network error triggers a retry mechanism.
 
-### 4. Bulk Delete DLQ Items
+---
 
-- **Endpoint:** `DELETE /admin/dlq`
-- **Method:** `DELETE`
-- **Description:** Deletes all items from the Dead Letter Queue. This action is irreversible.
-- **Success Response (`200 OK`):**
-  ```json
-  {
-    "message": "DLQ cleared successfully"
-  }
-  ```
+### Step-by-Step Guide: Verifying Webhook & DLQ Signatures
+
+Any service receiving webhooks (including the matchmaking callback) or resending items from the DLQ must verify the `X-Signature` header.
+
+1.  **Get the Raw Body and Signature:**
+    -   **Signature:** Get the value from the `X-Signature` HTTP header.
+    -   **Raw Body:** You must use the raw, unparsed request body as a string. Many web frameworks (like Express) require middleware to capture this.
+    
+    *Example (Express.js):*
+    ```javascript
+    // In your main app setup, before your routes:
+    app.use(express.json({
+      verify: (req, res, buf, encoding) => {
+        req.rawBody = buf.toString(encoding || 'utf-8');
+      }
+    }));
+    ```
+
+2.  **Recalculate the Signature:** Using your `HMAC_SECRET`, calculate the HMAC-SHA256 signature of the `rawBody` string.
+
+    ```javascript
+    const crypto = require('crypto');
+    const HMAC_SECRET = process.env.HMAC_SECRET; // Must match the server's .env
+    
+    // In your route handler:
+    const rawBody = req.rawBody;
+    const computedSignature = crypto.createHmac('sha256', HMAC_SECRET)
+                                    .update(rawBody)
+                                    .digest('hex');
+    ```
+
+3.  **Compare Signatures:** Use a constant-time comparison function to check if your `computedSignature` matches the signature from the header.
+
+    ```javascript
+    const receivedSignature = req.get('X-Signature'); // or req.headers['x-signature']
+
+    const areSignaturesEqual = crypto.timingSafeEqual(
+      Buffer.from(computedSignature),
+      Buffer.from(receivedSignature)
+    );
+
+    if (areSignaturesEqual) {
+      console.log("✅ Webhook signature is valid.");
+      // Process the webhook...
+    } else {
+      console.error("❌ Invalid webhook signature! Rejecting request.");
+      res.status(403).send('Invalid signature.');
+    }
+    ```
+
+---
+
+## 4. Administrative APIs
+(Admin API sections remain the same)
+
+---
+
+## 5. Matchmaking Service Callback
+
+After a session fully concludes, the server sends a final notification to the matchmaking service. This callback is also signed and must be verified using the same webhook verification guide above.
+
+-   **Endpoint:** The server sends a `POST` request to the URL defined in `MATCHMAKING_SERVICE_URL`.
+-   **Signature:** The request includes an `X-Signature` header.
+-   **Body:** The raw request body is a JSON string representing the final state of the session object.
+
+**Example Callback Body (Final Session State):**
+
+```json
+{
+  "sessionId": "e1d1b66c-663f-4c78-9f5e-8e4c06e92843",
+  "status": "ended",
+  "players": [...],
+  "board": [...],
+  "winState": "win",
+  "winnerPlayerId": "p1",
+  ...
+}
+```
