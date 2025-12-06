@@ -29,6 +29,19 @@ class GameClient {
     } catch (e) {
       socketUrl = null;
     }
+    // If using the Railway host, force https to avoid redirects/CORS; otherwise honor provided origin.
+    try {
+      const parsed = new URL(socketUrl);
+      if (
+        parsed.hostname.includes('tictac-toegame-server-production.up.railway.app') &&
+        parsed.protocol === 'http:'
+      ) {
+        parsed.protocol = 'https:';
+        socketUrl = parsed.origin;
+      }
+    } catch (e) {
+      // keep fallback socketUrl as-is if parsing fails
+    }
     this.socketUrl = socketUrl;
     this.apiBase = this.socketUrl ? `${this.socketUrl}/api` : '';
     debug.log('[GameClient] Target server:', this.socketUrl);
@@ -75,8 +88,8 @@ class GameClient {
 
       const joinPayload = {
         session_id: this.params.sessionId,
-        player_id: this.localPlayer.id,       // Corrected to snake_case
-        player_name: this.localPlayer.name,     // Corrected to snake_case
+        playerId: this.localPlayer.id,
+        playerName: this.localPlayer.name,
       };
 
       debug.log('[GameClient] Emitting join event with payload:', joinPayload);
@@ -106,6 +119,7 @@ class GameClient {
     this.socketManager.on('game-found', (payload) => this.handleGameFound(payload));
     this.socketManager.on('turn-started', (payload) => this.handleTurnStarted(payload));
     this.socketManager.on('move-applied', (payload) => this.handleMoveApplied(payload));
+    this.socketManager.on('move-error', (payload) => this.handleMoveError(payload));
     this.socketManager.on('game-ended', (payload) => this.handleGameEnded(payload));
     this.socketManager.on('player-disconnected', (payload) => this.handlePlayerStatusUpdate(payload, 'disconnected'));
     this.socketManager.on('player-reconnected', (payload) => this.handlePlayerStatusUpdate(payload, 'reconnected'));
@@ -118,55 +132,66 @@ class GameClient {
       return;
     }
 
+    const normalizedPlayers = this.normalizePlayers(session.players);
     this.gameState = 'playing';
-    this.session = { ...session };
-    this.playerSymbol = this.resolvePlayerSymbol(session);
+    this.session = {
+      session_id: session.session_id || session.sessionId,
+      players: normalizedPlayers,
+      board: session.board || Array(9).fill(null),
+      turn_duration_sec: session.turn_duration_sec,
+      current_turn_player_id: session.current_turn_player_id || session.current_turn || null,
+      status: 'active',
+    };
+    this.playerSymbol = this.resolvePlayerSymbol(this.session);
     this.persistSession();
 
     this.ui.hideOverlay();
     this.ui.markWinningCells([]);
-    this.ui.updatePlayers(session.players);
-    this.ui.setBoardState(session.board || Array(9).fill(null));
-    this.ui.setCurrentTurn(session.current_turn, { message: 'Game starting!' });
+    this.ui.updatePlayers(this.session.players);
+    this.ui.setBoardState(this.session.board);
+    const turnSymbol = this.getSymbolForPlayerId(this.session.current_turn_player_id);
+    this.ui.setCurrentTurn(turnSymbol, { message: 'Game starting!' });
 
-    if (session.turn_expires_at) {
-      this.startTurnTimer(session.turn_expires_at);
+    if (session.turn_expires_at || session.expires_at) {
+      this.startTurnTimer(session.turn_expires_at || session.expires_at);
     } else {
       this.ui.updateTimer('--');
     }
   }
 
-  handleTurnStarted({ session_id, current_turn, turn_expires_at }) {
-    if (!this.session || this.session.session_id !== session_id) return;
-    debug.log(`[GameClient] Turn started for ${current_turn}`);
-    this.session.current_turn = current_turn;
-    this.session.turn_expires_at = turn_expires_at;
-    this.ui.setCurrentTurn(current_turn, {});
-    this.startTurnTimer(turn_expires_at);
+  handleTurnStarted({ current_turn_player_id, expires_at }) {
+    if (!this.session) return;
+    debug.log(`[GameClient] Turn started for ${current_turn_player_id}`);
+    this.session.current_turn_player_id = current_turn_player_id;
+    this.session.turn_expires_at = expires_at;
+    const symbol = this.getSymbolForPlayerId(current_turn_player_id);
+    this.ui.setCurrentTurn(symbol, {});
+    this.startTurnTimer(expires_at);
   }
 
-  handleMoveApplied({ session_id, board, moves, current_turn, turn_expires_at }) {
-    if (!this.session || this.session.session_id !== session_id) return;
+  handleMoveApplied({ board, current_turn_player_id }) {
+    if (!this.session) return;
     debug.log('[GameClient] Move applied. New board state:', board);
+    const previousBoard = Array.isArray(this.session.board) ? [...this.session.board] : Array(9).fill(null);
     this.session.board = board;
-    this.session.moves = moves;
-    this.session.current_turn = current_turn;
-    this.session.turn_expires_at = turn_expires_at;
-
-    const lastMove = moves?.[moves.length - 1];
-    if (lastMove) {
-      this.ui.onMovePlaced(lastMove.symbol);
+    this.session.current_turn_player_id = current_turn_player_id;
+    this.moveLock = false;
+    const placedIndex = board.findIndex((cell, idx) => cell && cell !== previousBoard[idx]);
+    if (placedIndex >= 0) {
+      this.ui.onMovePlaced(board[placedIndex]);
     }
-
     this.ui.setBoardState(board);
-    this.ui.setCurrentTurn(current_turn, {});
-    this.startTurnTimer(turn_expires_at);
+    const symbol = this.getSymbolForPlayerId(current_turn_player_id);
+    this.ui.setCurrentTurn(symbol, {});
+    this.stopTurnTimer();
+    this.ui.updateTimer('--');
   }
 
   handleGameEnded({ session_id }) {
     if (this.gameState === 'ended') return;
     debug.log('[GameClient] Game ended notification received.');
     this.gameState = 'ended';
+    this.moveLock = false;
     this.stopTurnTimer();
     this.ui.stopTimerWarning();
 
@@ -187,11 +212,13 @@ class GameClient {
     }, 1000);
   }
 
-  handlePlayerStatusUpdate({ player_id, status }, type) {
+  handlePlayerStatusUpdate({ player_id, playerId, status }, type) {
     if (!this.session) return;
-    debug.log(`[GameClient] Player ${player_id} is now ${type}`);
+    const targetId = player_id || playerId;
+    debug.log(`[GameClient] Player ${targetId} is now ${type}`);
 
-    const player = Object.values(this.session.players).find(p => p.id === player_id);
+    const playerEntry = Object.entries(this.session.players).find(([, p]) => p.id === targetId);
+    const player = playerEntry ? playerEntry[1] : null;
     if (player) {
       player.connected = (type === 'reconnected');
       this.ui.updatePlayers(this.session.players);
@@ -267,7 +294,8 @@ class GameClient {
     if (this.gameState !== 'playing' || !this.session || this.moveLock) {
       return;
     }
-    if (this.playerSymbol !== this.session.current_turn) {
+    const currentTurnSymbol = this.getSymbolForPlayerId(this.session.current_turn_player_id);
+    if (this.playerSymbol !== currentTurnSymbol) {
       this.ui.toast('Not your turn.');
       return;
     }
@@ -279,28 +307,27 @@ class GameClient {
     this.moveLock = true;
     const movePayload = {
       session_id: this.session.session_id,
-      player_id: this.localPlayer.id,
+      playerId: this.localPlayer.id,
       position: index,
     };
     debug.log('[GameClient] Emitting make-move event:', movePayload);
 
-    this.socketManager.makeMove(movePayload)
-      .then(response => {
-        this.moveLock = false;
-        if (response?.error) {
-          debug.warn('[GameClient] Move rejected by server:', response.error);
-          this.ui.toast(this.describeMoveError(response.error));
-        }
-      })
-      .catch(err => {
-        this.moveLock = false;
-        debug.error('[GameClient] Failed to submit move:', err);
-        this.ui.toast('Move submission failed.');
-      });
+    this.socketManager.makeMove(movePayload).catch(err => {
+      this.moveLock = false;
+      debug.error('[GameClient] Failed to submit move:', err);
+      this.ui.toast('Move submission failed.');
+    });
+  }
+
+  handleMoveError(error = {}) {
+    this.moveLock = false;
+    const message = error?.message || 'Move was rejected.';
+    debug.warn('[GameClient] Move rejected by server:', message);
+    this.ui.toast(message);
   }
 
   resolvePlayerSymbol(session) {
-    const { players } = session;
+    const players = Array.isArray(session.players) ? this.normalizePlayers(session.players) : session.players;
     if (players?.X?.id === this.localPlayer.id) return 'X';
     if (players?.O?.id === this.localPlayer.id) return 'O';
     return null;
@@ -319,6 +346,26 @@ class GameClient {
     return map[code] || 'Move was rejected.';
   }
 
+  normalizePlayers(players = []) {
+    const normalized = { X: {}, O: {} };
+    players.forEach((player) => {
+      if (!player || !player.symbol) return;
+      normalized[player.symbol] = {
+        id: player.playerId,
+        name: player.playerName,
+        symbol: player.symbol,
+        connected: true,
+      };
+    });
+    return normalized;
+  }
+
+  getSymbolForPlayerId(playerId) {
+    if (!playerId || !this.session?.players) return null;
+    const entry = Object.entries(this.session.players).find(([, p]) => p.id === playerId);
+    return entry ? entry[0] : null;
+  }
+
   startTurnTimer(turnExpiresAt) {
     this.stopTurnTimer();
     if (!turnExpiresAt) {
@@ -331,7 +378,15 @@ class GameClient {
       const seconds = Math.ceil(remaining / 1000);
       const display = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
       this.ui.updateTimer(display, seconds <= 10 ? 'danger' : seconds <= 20 ? 'warning' : 'normal');
-      if (remaining <= 0) this.stopTurnTimer();
+      if (seconds <= 10) {
+        this.ui.startTimerWarning();
+      } else {
+        this.ui.stopTimerWarning();
+      }
+      if (remaining <= 0) {
+        this.ui.stopTimerWarning();
+        this.stopTurnTimer();
+      }
     }, 500);
   }
 

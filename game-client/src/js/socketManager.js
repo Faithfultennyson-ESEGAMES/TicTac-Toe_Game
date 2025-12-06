@@ -31,10 +31,14 @@ class SocketManager {
       }
 
       this.socket = window.io(this.url, {
+        path: '/socket.io',
+        transports: ['websocket'], // avoid polling to bypass CORS header on XHR
+        upgrade: false,
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         reconnectionAttempts: 5,
+        withCredentials: false,
         auth: this.authToken ? { token: this.authToken } : undefined,
       });
 
@@ -141,9 +145,8 @@ class SocketManager {
   }
 
   makeMove(payload) {
-    return new Promise((resolve) => {
-      this.emit('make_move', payload, (response) => resolve(response));
-    });
+    this.emit('make-move', payload);
+    return Promise.resolve();
   }
 
   disconnect() {

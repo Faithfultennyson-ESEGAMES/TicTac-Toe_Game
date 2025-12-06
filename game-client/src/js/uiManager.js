@@ -169,6 +169,25 @@ class UIManager {
   startTimerWarning() {
     audioManager.startTimerWarning();
   }
+
+  // End screen helpers (overlay-driven)
+  showEndScreen() {
+    this.showOverlay({
+      title: 'Game Ended',
+      message: 'Session closed. Waiting to finish...',
+      showSpinner: false,
+    });
+  }
+
+  updateEndScreenTimer(seconds) {
+    if (Number.isFinite(seconds)) {
+      this.overlayMessage.textContent = `Session closed ${seconds}s ago`;
+    }
+  }
+
+  updateEndScreenMessage(message) {
+    this.overlayMessage.textContent = message;
+  }
 }
 
 export default UIManager;

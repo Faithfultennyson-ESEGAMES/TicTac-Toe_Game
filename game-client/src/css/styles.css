@@ -190,33 +190,9 @@ button:disabled {
 
 .controls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
   align-items: center;
-}
-
-.control-btn {
-  padding: 12px 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--color-text);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  transition: background var(--transition-fast), transform var(--transition-fast);
-}
-
-.control-btn.primary {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
-  color: #0c111a;
-}
-
-.control-btn.danger {
-  background: rgba(255, 95, 95, 0.12);
-  color: var(--color-danger);
-}
-
-.control-btn:active {
-  transform: translateY(1px);
 }
 
 .connection-status {

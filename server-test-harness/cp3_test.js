@@ -8,7 +8,7 @@ if (!SESSION_ID) {
 }
 
 // change port if needed
-const URL = "http://localhost:5500";
+const URL = "https://tictac-toegame-server-production.up.railway.app";
 
 function makeClient(label, playerId, playerName) {
   const socket = io(URL, { transports: ["websocket"] });
