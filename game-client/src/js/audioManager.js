@@ -112,18 +112,25 @@ class AudioManager {
       try {
         await this.ensureContextReady();
         audio.currentTime = 0;
-        console.info('[Audio] play', name, 'state=', this.audioContext?.state);
-        await audio.play();
+        const playPromise = audio.play();
+        if (playPromise?.catch) {
+          await playPromise;
+        }
       } catch (error) {
         console.warn('[Audio] play failed', name, error?.message || error);
-        // Fallback: clone node to avoid locked state
-        try {
-          const clone = audio.cloneNode(true);
-          clone.currentTime = 0;
-          await clone.play();
-          console.info('[Audio] fallback clone played', name);
-        } catch (err) {
-          console.warn('[Audio] fallback clone failed', name, err?.message || err);
+        // Fallback only if nothing started playing
+        if (audio.paused) {
+          try {
+            const clone = audio.cloneNode(true);
+            clone.currentTime = 0;
+            const clonePromise = clone.play();
+            if (clonePromise?.catch) {
+              await clonePromise;
+            }
+            console.info('[Audio] fallback clone played', name);
+          } catch (err) {
+            console.warn('[Audio] fallback clone failed', name, err?.message || err);
+          }
         }
       }
     };

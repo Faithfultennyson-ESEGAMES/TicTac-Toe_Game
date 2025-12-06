@@ -29,6 +29,7 @@ class UIManager {
     this.resultTitle = document.getElementById('result-title');
     this.resultSummary = document.getElementById('result-summary');
     this.toastEl = null;
+    this.lastMoveSoundAt = 0;
   }
 
   bindBoardHandlers(handler) {
@@ -145,6 +146,11 @@ class UIManager {
   onMovePlaced(symbol) {
     // Ensure context is resumed before playing.
     audioManager.ensureContextReady()?.catch?.(() => {});
+    const now = Date.now();
+    if (now - this.lastMoveSoundAt < 150) {
+      return; // debounce overlapping plays
+    }
+    this.lastMoveSoundAt = now;
     audioManager.play(symbol === 'X' ? 'xPlace' : 'oPlace');
   }
 

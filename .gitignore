@@ -5,3 +5,4 @@ game-server/logs/
 game-server/dlq/
 OLD.game-client/
 GameClient_Sample/
+db.json

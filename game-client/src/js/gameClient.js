@@ -368,19 +368,24 @@ class GameClient {
     }
     const expiry = new Date(turnExpiresAt).getTime();
     const totalDurationSec = this.computeTurnDurationSec(expiry);
-    const warnThresholdSec = Math.max(1, Math.ceil(totalDurationSec * 0.3));
+    const cautionThresholdSec = Math.max(1, Math.ceil(totalDurationSec * 0.5)); // yellow
+    const warnThresholdSec = Math.max(1, Math.ceil(totalDurationSec * 0.3)); // red + sound
 
     this.turnTick = setInterval(() => {
       const remaining = Math.max(0, expiry - Date.now());
       const seconds = Math.ceil(remaining / 1000);
       const display = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-      const isWarning = seconds <= warnThresholdSec;
-      this.ui.updateTimer(display, isWarning ? 'danger' : 'normal');
-      if (isWarning) {
+      let state = 'normal';
+      if (seconds <= warnThresholdSec) {
+        state = 'danger';
         this.ui.startTimerWarning();
+      } else if (seconds <= cautionThresholdSec) {
+        state = 'warning';
+        this.ui.stopTimerWarning();
       } else {
         this.ui.stopTimerWarning();
       }
+      this.ui.updateTimer(display, state);
       if (remaining <= 0) {
         this.ui.stopTimerWarning();
         this.stopTurnTimer();

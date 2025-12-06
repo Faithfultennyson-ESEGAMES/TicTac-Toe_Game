@@ -1,119 +1,177 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Matchmaking Test Client</title>
-    <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #f0f0f0; }
-        h1 { text-align: center; }
-        #players-container { display: flex; justify-content: space-around; width: 100%; max-width: 1600px; }
-        .player-card { border: 1px solid #ccc; border-radius: 8px; padding: 15px; width: 23%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .player-header { font-weight: bold; font-size: 1.2em; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
-        button { background-color: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; margin-bottom: 10px; width: 100%; }
-        button:disabled { background-color: #aaa; }
-        .log-container { height: 200px; overflow-y: scroll; border: 1px solid #e0e0e0; padding: 8px; font-family: monospace; font-size: 0.9em; background: #fafafa; }
-        .log-entry { padding: 4px; border-bottom: 1px dotted #ccc; }
-        .log-entry.event { color: #0056b3; }
-        .log-entry.error { color: #d9534f; }
-        .log-entry.info { color: #5bc0de; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Matchmaking Test Client</title>
+  <style>
+    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #f0f0f0; }
+    h1 { text-align: center; }
+    #players-container { display: flex; justify-content: space-around; width: 100%; max-width: 1600px; gap: 12px; flex-wrap: wrap; }
+    .player-card { border: 1px solid #ccc; border-radius: 8px; padding: 15px; width: 23%; min-width: 240px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .player-header { font-weight: bold; font-size: 1.2em; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+    button { background-color: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; margin-bottom: 10px; width: 100%; font-weight: 700; }
+    button:disabled { background-color: #aaa; cursor: not-allowed; }
+    .log-container { height: 220px; overflow-y: auto; border: 1px solid #e0e0e0; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: #fafafa; border-radius: 6px; }
+    .log-entry { padding: 4px; border-bottom: 1px dotted #ccc; }
+    .log-entry.event { color: #0056b3; }
+    .log-entry.error { color: #d9534f; }
+    .log-entry.info { color: #5bc0de; }
+    .badge {
+      background: #4caf50; color: #fff; padding: 6px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 800; margin: 8px 0 14px; display: inline-block;
+    }
+    .note {
+      font-size: 12px; color:#444; background:#fff; padding:10px 12px; border-radius:8px;
+      max-width: 900px; line-height:1.4; border-left: 3px solid #007bff; margin-bottom: 14px;
+    }
+  </style>
 </head>
 <body>
 
-    <h1>Matchmaking Test Client</h1>
+  <h1>Matchmaking Test Client</h1>
+  <div class="badge">Railway server + CDN fallback</div>
 
-    <div id="players-container"></div>
+  <div class="note">
+    Server is fixed to: <b id="serverLabel"></b><br/>
+    If you open this as <code>file://</code> on mobile, some servers reject Origin:<code>null</code>.  
+    Best: open it from any http(s) host, even locally.
+  </div>
 
-    <!-- UPDATED: Using latest stable Socket.IO client library -->
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <div id="players-container"></div>
 
-    <script>
-        const MATCHMAKING_SERVER_URL = 'http://localhost:3330';
-        const playersContainer = document.getElementById('players-container');
+  <!-- Local first (if you ever bundle it), CDN fallback below -->
+  <script>
+    function ensureSocketIoLoaded(cb) {
+      if (typeof io !== "undefined") return cb();
 
-        function createPlayerInstance(playerId, playerName) {
-            const card = document.createElement('div');
-            card.className = 'player-card';
+      const s = document.createElement("script");
+      s.src = "https://cdn.socket.io/4.8.1/socket.io.min.js";
+      s.crossOrigin = "anonymous";
+      s.onload = cb;
+      s.onerror = () => alert("Failed to load Socket.IO client.");
+      document.head.appendChild(s);
+    }
+  </script>
 
-            const header = document.createElement('div');
-            header.className = 'player-header';
-            header.textContent = `Player: ${playerName} (${playerId})`;
+  <script>
+    /*************************
+     * CONFIG (fixed URL)
+     *************************/
+    const RAW_SERVER_URL = "https://94c4d018290c.ngrok-free.app";
 
-            const button = document.createElement('button');
-            button.id = `btn-${playerId}`;
+    // If page is https, always use wss/https to avoid mixed content auto-disconnects
+    const MATCHMAKING_SERVER_URL =
+      location.protocol === "https:" ? RAW_SERVER_URL.replace("http://", "https://") : RAW_SERVER_URL;
+
+    document.getElementById("serverLabel").textContent = MATCHMAKING_SERVER_URL;
+
+    const playersContainer = document.getElementById('players-container');
+
+    function createPlayerInstance(playerId, playerName) {
+      const card = document.createElement('div');
+      card.className = 'player-card';
+
+      const header = document.createElement('div');
+      header.className = 'player-header';
+      header.textContent = `Player: ${playerName} (${playerId})`;
+
+      const button = document.createElement('button');
+      button.id = `btn-${playerId}`;
+      button.textContent = 'Request Match';
+
+      const logContainer = document.createElement('div');
+      logContainer.id = `log-${playerId}`;
+      logContainer.className = 'log-container';
+
+      card.appendChild(header);
+      card.appendChild(button);
+      card.appendChild(logContainer);
+      playersContainer.appendChild(card);
+
+      let socket = null;
+
+      function log(message, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logContainer.appendChild(entry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+        console.log(`[${playerId}] ${message}`);
+      }
+
+      function connectAndRequest() {
+        ensureSocketIoLoaded(() => {
+          log('Connecting to server...', 'info');
+          button.disabled = true;
+          button.textContent = 'Connecting...';
+
+          if (socket) socket.disconnect();
+
+          socket = io(MATCHMAKING_SERVER_URL, {
+            path: "/socket.io",
+            transports: ["websocket", "polling"],   // try WS, fall back to polling
+            upgrade: true,
+            rememberUpgrade: true,
+            timeout: 20000,
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            reconnectionAttempts: Infinity,
+            withCredentials: false
+          });
+
+          socket.on("connect", () => {
+            log(`✅ Connected! socketId=${socket.id}`, "event");
+            log(`Transport: ${socket.io.engine.transport.name}`, "info");
+            button.disabled = false;
             button.textContent = 'Request Match';
+            socket.emit("request-match", { playerId, playerName });
+          });
 
-            const logContainer = document.createElement('div');
-            logContainer.id = `log-${playerId}`;
-            logContainer.className = 'log-container';
+          socket.io.on("upgrade", (transport) => {
+            log(`⬆️ Upgraded to transport: ${transport.name}`, "info");
+          });
 
-            card.appendChild(header);
-            card.appendChild(button);
-            card.appendChild(logContainer);
-            playersContainer.appendChild(card);
+          socket.on("disconnect", (reason) => {
+            log(`❌ Disconnected: ${reason}`, "error");
+            log("If this happens instantly, it's usually CORS/Origin or mixed-content.", "error");
+            button.textContent = 'Request Match (Reconnect)';
+            button.disabled = false;
+          });
 
-            let socket = null;
+          socket.on("connect_error", (err) => {
+            log(`❌ Connection Error: ${err.message}`, "error");
+            log("Tip: confirm server allows your Origin (iframe/webview/file://).", "error");
+            button.disabled = false;
+            button.textContent = 'Request Match';
+          });
 
-            function log(message, type = 'info') {
-                const entry = document.createElement('div');
-                entry.className = `log-entry ${type}`;
-                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-                logContainer.appendChild(entry);
-                logContainer.scrollTop = logContainer.scrollHeight;
-            }
+          socket.on("match-found", (data) => {
+            log(`🎉 MATCH FOUND! Join URL: ${data.join_url}`, "event");
+            log(`----------------------------------`, "info");
+          });
 
-            button.addEventListener('click', () => {
-                if (socket && socket.connected) {
-                    log('Already connected. Sending request-match...');
-                    socket.emit('request-match', { playerId, playerName });
-                } else {
-                    log('Connecting to server...');
-                    button.disabled = true;
-                    button.textContent = 'Connecting...';
-                    
-                    socket = io(MATCHMAKING_SERVER_URL, {
-                        transports: ['websocket', 'polling'],
-                        reconnection: true,
-                        reconnectionDelay: 1000,
-                        reconnectionDelayMax: 5000,
-                        reconnectionAttempts: Infinity,
-                        withCredentials: false
-                    });
+          socket.on("match-error", (data) => {
+            log(`⚠️ Error from server: ${data.message}`, "error");
+          });
+        });
+      }
 
-                    socket.on('connect', () => {
-                        log(`Connected via ${socket.io.engine.transport.name}. Sending request...`, 'event');
-                        button.disabled = false;
-                        button.textContent = 'Request Match';
-                        socket.emit('request-match', { playerId, playerName });
-                    });
-
-                    socket.on('disconnect', (reason) => {
-                        log(`Disconnected: ${reason}`, 'error');
-                        button.textContent = 'Request Match (Reconnect)';
-                    });
-
-                    socket.on('connect_error', (err) => {
-                        log(`Connection Error: ${err.message}`, 'error');
-                        log('Tip: Check server logs and port number.', 'error');
-                        button.disabled = false;
-                        button.textContent = 'Request Match';
-                    });
-                    
-                    socket.on('match-found', (data) => {
-                        log(`MATCH FOUND! Join URL: ${data.join_url}`, 'event');
-                        log(`----------------------------------`);
-                    });
-
-                    socket.on('match-error', (data) => {
-                        log(`Error from server: ${data.message}`, 'error');
-                    });
-                }
-            });
+      button.addEventListener("click", () => {
+        if (socket && socket.connected) {
+          log("Already connected. Sending request-match...", "info");
+          socket.emit("request-match", { playerId, playerName });
+        } else {
+          connectAndRequest();
         }
+      });
+    }
 
-        createPlayerInstance('player-1', 'Alice');
-        createPlayerInstance('player-2', 'Bob');
-        createPlayerInstance('player-3', 'Charlie');
-        createPlayerInstance('player-4', 'Diana');
-
-    </script>
+    createPlayerInstance("player-1", "Alice");
+    createPlayerInstance("player-2", "Bob");
+    createPlayerInstance("player-3", "Charlie");
+    createPlayerInstance("player-4", "Diana");
+  </script>
 </body>
 </html>
