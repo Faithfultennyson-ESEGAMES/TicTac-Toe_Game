@@ -22,9 +22,10 @@
 
     <div id="players-container"></div>
 
-    <script src="https://cdn.socket.io/4.5.3/socket.io.min.js"></script>
+    <!-- UPDATED: Using latest stable Socket.IO client library -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
     <script>
-        // --- CORRECTED PORT --- 
         const MATCHMAKING_SERVER_URL = 'http://localhost:3330';
         const playersContainer = document.getElementById('players-container');
 
@@ -73,7 +74,8 @@
                         reconnection: true,
                         reconnectionDelay: 1000,
                         reconnectionDelayMax: 5000,
-                        reconnectionAttempts: 5
+                        reconnectionAttempts: Infinity,
+                        withCredentials: false
                     });
 
                     socket.on('connect', () => {
@@ -90,7 +92,7 @@
 
                     socket.on('connect_error', (err) => {
                         log(`Connection Error: ${err.message}`, 'error');
-                        log('Is the server running on the correct port?', 'error');
+                        log('Tip: Check server logs and port number.', 'error');
                         button.disabled = false;
                         button.textContent = 'Request Match';
                     });

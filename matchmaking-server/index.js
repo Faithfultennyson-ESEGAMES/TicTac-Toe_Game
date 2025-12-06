@@ -6,10 +6,11 @@ const { Server } = require('socket.io');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const { JSONFile, Low } = require('lowdb');
+const cors = require('cors'); // Import the cors middleware
 
 // --- Configuration & Initialization ---
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3330;
 const MATCHMAKING_AUTH_TOKEN = process.env.MATCHMAKING_AUTH_TOKEN;
 const MATCHMAKING_HMAC_SECRET = process.env.MATCHMAKING_HMAC_SECRET;
 const GAME_SERVER_URL = process.env.GAME_SERVER_URL;
@@ -21,37 +22,27 @@ if (!MATCHMAKING_AUTH_TOKEN || !MATCHMAKING_HMAC_SECRET) {
 }
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: "*", // For simplicity; restrict in production
-        methods: ["GET", "POST"]
-    }
-});
-
-// --- Database Setup ---
-
-// CORRECTED: Path is now relative to the execution directory
-const adapter = new JSONFile('db.json');
-const db = new Low(adapter);
-
-async function initializeDatabase() {
-    await db.read();
-    db.data = db.data || {
-        queue: [],
-        active_games: {},
-        ended_games: {}
-    };
-    await db.write();
-}
 
 // --- Middleware ---
+
+// CORRECTED: Use cors middleware for Express to handle initial handshake
+app.use(cors());
 
 const rawBodySaver = (req, res, buf, encoding) => {
     if (buf && buf.length) {
         req.rawBody = buf.toString(encoding || 'utf8');
     }
 };
+app.use(bodyParser.json({ verify: rawBodySaver }));
+
+const server = http.createServer(app);
+const io = new Server(server, {
+    // Socket.IO’s cors is still useful for fine-tuning WebSocket-specific rules
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 
 const verifyWebhookSignature = (req, res, next) => {
     const signature = req.headers['x-matchmaking-signature'];
@@ -68,8 +59,21 @@ const verifyWebhookSignature = (req, res, next) => {
     next();
 };
 
-app.use(bodyParser.json({ verify: rawBodySaver }));
 
+// --- Database Setup ---
+
+const adapter = new JSONFile('db.json');
+const db = new Low(adapter);
+
+async function initializeDatabase() {
+    await db.read();
+    db.data = db.data || {
+        queue: [],
+        active_games: {},
+        ended_games: {}
+    };
+    await db.write();
+}
 
 // --- Main Application Logic ---
 
@@ -142,7 +146,6 @@ async function main() {
                         throw new Error(`Game server returned ${response.status}`);
                     }
                     
-                    // VERIFY THE RESPONSE FROM THE GAME SERVER
                     const signature = response.headers.get('x-matchmaking-signature');
                     const bodyText = await response.text();
                     const expectedSignature = crypto.createHmac('sha256', MATCHMAKING_HMAC_SECRET).update(bodyText).digest('hex');
@@ -199,7 +202,7 @@ async function main() {
         if (changed) {
             await db.write();
         }
-    }, DB_ENTRY_TTL_MS / 4);
+    }, DB_entry_TTL_MS / 4);
 
     server.listen(PORT, () => {
         console.log(`Matchmaking server listening on http://localhost:${PORT}`);
