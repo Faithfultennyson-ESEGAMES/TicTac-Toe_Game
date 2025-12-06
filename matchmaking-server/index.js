@@ -15,7 +15,7 @@ const MATCHMAKING_HMAC_SECRET = process.env.MATCHMAKING_HMAC_SECRET;
 const GAME_SERVER_URL = process.env.GAME_SERVER_URL;
 const DB_ENTRY_TTL_MS = parseInt(process.env.DB_ENTRY_TTL_MS, 10) || 3600000;
 const MAX_SESSION_CREATION_ATTEMPTS = parseInt(process.env.MAX_SESSION_CREATION_ATTEMPTS, 10) || 3;
-const SESSION_CREATION_RETRY_DELAY_MS = parseInt(process.env.SESSION_CREATION_RETRY_DELAY_MS, 10) || 1000;
+const SESSION_CREATION_RETRY_DELAY_MS = parseInt(process.env.SESSION_CREATION_RETRY_DELAY_MS, 10) || 1500;
 
 if (!MATCHMAKING_AUTH_TOKEN || !MATCHMAKING_HMAC_SECRET) {
     console.error('FATAL ERROR: MATCHMAKING_AUTH_TOKEN and MATCHMAKING_HMAC_SECRET must be defined in .env file.');
@@ -28,13 +28,7 @@ const server = http.createServer(app);
 // --- Middleware ---
 
 app.use(cors());
-
-const rawBodySaver = (req, res, buf, encoding) => {
-    if (buf && buf.length) {
-        req.rawBody = buf.toString(encoding || 'utf8');
-    }
-};
-app.use(bodyParser.json({ verify: rawBodySaver }));
+app.use(bodyParser.json());
 
 const io = new Server(server, {
     cors: {
@@ -42,18 +36,6 @@ const io = new Server(server, {
         methods: ["GET", "POST"]
     }
 });
-
-const verifyWebhookSignature = (req, res, next) => {
-    const signature = req.headers['x-matchmaking-signature'];
-    if (!signature) {
-        return res.status(401).send('Signature header missing.');
-    }
-    const expectedSignature = crypto.createHmac('sha256', MATCHMAKING_HMAC_SECRET).update(req.rawBody).digest('hex');
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
-        return res.status(403).send('Invalid signature.');
-    }
-    next();
-};
 
 // --- Database Setup ---
 
@@ -77,13 +59,7 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function main() {
     await initializeDatabase();
-    
-    // --- HTTP Routes ---
-    app.post('/session-closed', verifyWebhookSignature, async (req, res) => {
-        // ... (this logic remains the same)
-    });
 
-    // --- Socket.IO Logic ---
     io.on('connection', (socket) => {
         console.log(`[Socket] Client connected: ${socket.id}`);
 
@@ -113,7 +89,6 @@ async function main() {
                     const [player1, player2] = db.data.queue.splice(0, 2);
                     console.log(`[Match] Found a match between ${player1.playerId} and ${player2.playerId}`);
 
-                    let sessionCreated = false;
                     for (let attempt = 1; attempt <= MAX_SESSION_CREATION_ATTEMPTS; attempt++) {
                         try {
                             console.log(`[Game Server] Attempt ${attempt} to create session for ${player1.playerId} and ${player2.playerId}`);
@@ -129,22 +104,36 @@ async function main() {
                                 throw new Error(`Game server returned status ${response.status}`);
                             }
 
-                            const signatureHeader = response.headers.get('x-matchmaking-signature');
-                            if (!signatureHeader) {
-                                throw new Error('Response from game server is missing signature header');
+                            const body = await response.json();
+                            const receivedSignature = body.signature;
+
+                            if (!receivedSignature) {
+                                throw new Error('Response from game server is missing signature in body');
                             }
 
-                            // CORRECTED: Use arrayBuffer() for raw body and verify with prefix
-                            const bodyBuffer = await response.arrayBuffer();
-                            const computedHex = crypto.createHmac('sha256', MATCHMAKING_HMAC_SECRET).update(Buffer.from(bodyBuffer)).digest('hex');
-                            const expectedSignature = `sha256=${computedHex}`;
+                            // FINAL CORRECT IMPLEMENTATION: Per game-server docs.
+                            // 1. Create a new object with only the signed fields.
+                            const payloadToVerify = {
+                                session_id: body.session_id,
+                                join_url: body.join_url
+                            };
 
-                            if (!crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expectedSignature))) {
+                            // 2. Stringify this new, clean object.
+                            const canonicalString = JSON.stringify(payloadToVerify);
+
+                            // 3. Re-calculate the signature.
+                            const computedSignature = crypto.createHmac('sha256', MATCHMAKING_HMAC_SECRET).update(canonicalString).digest('hex');
+
+                            // 4. Compare the signatures.
+                            if (!crypto.timingSafeEqual(Buffer.from(receivedSignature), Buffer.from(computedSignature))) {
+                                console.error('[Debug] Signature Mismatch Details:');
+                                console.error(`[Debug]   - Canonical String Used: ${canonicalString}`);
+                                console.error(`[Debug]   - Received Signature: ${receivedSignature}`);
+                                console.error(`[Debug]   - Computed Signature: ${computedSignature}`);
                                 throw new Error('Invalid response signature from game server');
                             }
-                            
-                            // Only parse JSON after verification
-                            const { session_id, join_url } = JSON.parse(Buffer.from(bodyBuffer).toString('utf8'));
+
+                            const { session_id, join_url } = body;
                             console.log(`[Game Server] Successfully created and verified session ${session_id}`);
 
                             await db.read();
@@ -155,24 +144,25 @@ async function main() {
                             io.to(player1.socketId).emit('match-found', { session_id, join_url });
                             io.to(player2.socketId).emit('match-found', { session_id, join_url });
 
-                            sessionCreated = true;
-                            break; // Success, exit the retry loop
+                            break; // Success!
 
                         } catch (error) {
                             console.error(`[Error] Attempt ${attempt} failed:`, error.message);
                             if (attempt < MAX_SESSION_CREATION_ATTEMPTS) {
-                                console.log(`[Retry] Waiting ${SESSION_CREATION_RETRY_DELAY_MS}ms before next attempt.`);
                                 await delay(SESSION_CREATION_RETRY_DELAY_MS);
                             } else {
                                 console.error('[Fatal] All attempts to create a game session failed.');
-                                // Return players to the front of the queue if all attempts fail
                                 await db.read();
-                                db.data.queue.unshift(player1, player2);
+                                if (!db.data.queue.some(p => p.playerId === player1.playerId)) {
+                                    db.data.queue.unshift(player1);
+                                }
+                                if (!db.data.queue.some(p => p.playerId === player2.playerId)) {
+                                    db.data.queue.unshift(player2);
+                                }
                                 await db.write();
 
-                                // Notify clients of the final failure
-                                io.to(player1.socketId).emit('match-error', { message: 'Could not create game session after multiple attempts.' });
-                                io.to(player2.socketId).emit('match-error', { message: 'Could not create game session after multiple attempts.' });
+                                io.to(player1.socketId)?.emit('match-error', { message: 'Could not create game session.' });
+                                io.to(player2.socketId)?.emit('match-error', { message: 'Could not create game session.' });
                             }
                         }
                     }
@@ -184,14 +174,20 @@ async function main() {
         });
 
         socket.on('disconnect', async () => {
-           // ... (this logic remains the same)
+            console.log(`[Socket] Client disconnected: ${socket.id}`);
+            try {
+                await db.read();
+                const index = db.data.queue.findIndex(p => p.socketId === socket.id);
+                if (index !== -1) {
+                    const { playerId } = db.data.queue.splice(index, 1)[0];
+                    console.log(`[State] Player ${playerId} removed from queue due to disconnect.`);
+                    await db.write();
+                }
+            } catch (err) {
+                console.error('[FATAL] Unhandled error in disconnect handler:', err);
+            }
         });
     });
-
-    // --- Periodic Cleanup ---
-    setInterval(async () => {
-        // ... (this logic remains the same)
-    }, DB_ENTRY_TTL_MS / 4);
 
     server.listen(PORT, () => {
         console.log(`Matchmaking server listening on http://localhost:${PORT}`);
