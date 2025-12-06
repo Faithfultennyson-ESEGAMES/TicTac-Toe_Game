@@ -24,7 +24,8 @@
 
     <script src="https://cdn.socket.io/4.5.3/socket.io.min.js"></script>
     <script>
-        const MATCHMAKING_SERVER_URL = 'http://localhost:3000';
+        // --- CORRECTED PORT --- 
+        const MATCHMAKING_SERVER_URL = 'http://localhost:3330';
         const playersContainer = document.getElementById('players-container');
 
         function createPlayerInstance(playerId, playerName) {
@@ -67,9 +68,8 @@
                     button.disabled = true;
                     button.textContent = 'Connecting...';
                     
-                    // --- UPDATED: Using robust connection options ---
                     socket = io(MATCHMAKING_SERVER_URL, {
-                        transports: ['websocket', 'polling'], // Use polling as fallback
+                        transports: ['websocket', 'polling'],
                         reconnection: true,
                         reconnectionDelay: 1000,
                         reconnectionDelayMax: 5000,
@@ -90,7 +90,7 @@
 
                     socket.on('connect_error', (err) => {
                         log(`Connection Error: ${err.message}`, 'error');
-                        log('Server may be down or unreachable.', 'error');
+                        log('Is the server running on the correct port?', 'error');
                         button.disabled = false;
                         button.textContent = 'Request Match';
                     });
