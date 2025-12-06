@@ -1,5 +1,5 @@
 
-require('dotenv').config({ path: './.env' });
+require('dotenv').config({ path: './.env' }); 
 const crypto = require('crypto');
 
 const fetchFn = global.fetch || ((...args) =>
@@ -7,7 +7,7 @@ const fetchFn = global.fetch || ((...args) =>
 );
 
 // --- CONFIGURATION ---
-const NGROK_URL = 'https://94c4d018290c.ngrok-free.app';
+const NGROK_URL = 'https://94c4d018290c.ngrok-free.app'; // Your ngrok URL
 const ENDPOINT = '/session-closed';
 const HMAC_SECRET = process.env.MATCHMAKING_HMAC_SECRET;
 
@@ -27,7 +27,6 @@ async function sendSignedWebhook() {
     const url = `${NGROK_URL}${ENDPOINT}`;
     const body = JSON.stringify(payload);
 
-    // 1. Calculate the signature
     const signature = crypto.createHmac('sha256', HMAC_SECRET)
                             .update(body)
                             .digest('hex');
@@ -37,17 +36,15 @@ async function sendSignedWebhook() {
     console.log(`Calculated Signature: ${signature}`);
 
     try {
-        // 2. Send the request with the CORRECT header
         const response = await fetchFn(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-Signature': signature // CORRECTED HEADER
+                'x-matchmaking-signature': signature
             },
             body: body
         });
 
-        // 3. Report the result
         const responseBody = await response.text();
         console.log('\n--- RESPONSE ---');
         console.log(`Status: ${response.status} ${response.statusText}`);
