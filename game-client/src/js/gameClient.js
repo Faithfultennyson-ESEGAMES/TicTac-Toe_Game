@@ -29,19 +29,6 @@ class GameClient {
     } catch (e) {
       socketUrl = null;
     }
-    // If using the Railway host, force https to avoid redirects/CORS; otherwise honor provided origin.
-    try {
-      const parsed = new URL(socketUrl);
-      if (
-        parsed.hostname.includes('tictac-toegame-server-production.up.railway.app') &&
-        parsed.protocol === 'http:'
-      ) {
-        parsed.protocol = 'https:';
-        socketUrl = parsed.origin;
-      }
-    } catch (e) {
-      // keep fallback socketUrl as-is if parsing fails
-    }
     this.socketUrl = socketUrl;
     this.apiBase = this.socketUrl ? `${this.socketUrl}/api` : '';
     debug.log('[GameClient] Target server:', this.socketUrl);
@@ -109,6 +96,9 @@ class GameClient {
   bindUIEvents() {
     this.ui.bindBoardHandlers((index) => this.handleCellSelection(index));
     document.getElementById('result-close-btn').addEventListener('click', () => this.ui.hideResult());
+    ['pointerdown','click','touchstart','keydown'].forEach(evt => {
+      window.addEventListener(evt, () => audioManager.ensureContextReady()?.catch?.(() => {}), { once: true });
+    });
   }
 
   attachSocketHandlers() {
@@ -294,6 +284,7 @@ class GameClient {
     if (this.gameState !== 'playing' || !this.session || this.moveLock) {
       return;
     }
+    audioManager.ensureContextReady()?.catch?.(() => {});
     const currentTurnSymbol = this.getSymbolForPlayerId(this.session.current_turn_player_id);
     if (this.playerSymbol !== currentTurnSymbol) {
       this.ui.toast('Not your turn.');

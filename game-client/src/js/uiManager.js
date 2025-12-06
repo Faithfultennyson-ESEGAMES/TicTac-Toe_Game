@@ -143,10 +143,13 @@ class UIManager {
   }
 
   onMovePlaced(symbol) {
+    // Ensure context is resumed before playing.
+    audioManager.ensureContextReady()?.catch?.(() => {});
     audioManager.play(symbol === 'X' ? 'xPlace' : 'oPlace');
   }
 
   onGameEnded({ outcome, winnerSymbol, isLocalWinner }) {
+    audioManager.ensureContextReady()?.catch?.(() => {});
     if (outcome === 'draw') {
       audioManager.play('gameLost');
       return;

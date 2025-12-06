@@ -32,8 +32,8 @@ class SocketManager {
 
       this.socket = window.io(this.url, {
         path: '/socket.io',
-        transports: ['websocket'], // avoid polling to bypass CORS header on XHR
-        upgrade: false,
+        transports: ['websocket', 'polling'],
+        upgrade: true,
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
