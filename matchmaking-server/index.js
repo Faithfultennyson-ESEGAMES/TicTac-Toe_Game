@@ -87,7 +87,9 @@ async function main() {
 
                 if (db.data.queue.length >= 2) {
                     const [player1, player2] = db.data.queue.splice(0, 2);
-                    console.log(`[Match] Found a match between ${player1.playerId} and ${player2.playerId}`);
+                    // CORRECTED: Immediately persist the change to the queue.
+                    await db.write();
+                    console.log(`[Match] Found a match between ${player1.playerId} and ${player2.playerId}. Queue updated.`);
 
                     for (let attempt = 1; attempt <= MAX_SESSION_CREATION_ATTEMPTS; attempt++) {
                         try {
@@ -111,32 +113,21 @@ async function main() {
                                 throw new Error('Response from game server is missing signature in body');
                             }
 
-                            // FINAL CORRECT IMPLEMENTATION: Per game-server docs.
-                            // 1. Create a new object with only the signed fields.
                             const payloadToVerify = {
                                 session_id: body.session_id,
                                 join_url: body.join_url
                             };
-
-                            // 2. Stringify this new, clean object.
                             const canonicalString = JSON.stringify(payloadToVerify);
-
-                            // 3. Re-calculate the signature.
                             const computedSignature = crypto.createHmac('sha256', MATCHMAKING_HMAC_SECRET).update(canonicalString).digest('hex');
 
-                            // 4. Compare the signatures.
                             if (!crypto.timingSafeEqual(Buffer.from(receivedSignature), Buffer.from(computedSignature))) {
-                                console.error('[Debug] Signature Mismatch Details:');
-                                console.error(`[Debug]   - Canonical String Used: ${canonicalString}`);
-                                console.error(`[Debug]   - Received Signature: ${receivedSignature}`);
-                                console.error(`[Debug]   - Computed Signature: ${computedSignature}`);
                                 throw new Error('Invalid response signature from game server');
                             }
 
                             const { session_id, join_url } = body;
                             console.log(`[Game Server] Successfully created and verified session ${session_id}`);
 
-                            await db.read();
+                            // CORRECTED: Do not re-read the database here. The in-memory state is correct.
                             db.data.active_games[player1.playerId] = { sessionId: session_id, join_url };
                             db.data.active_games[player2.playerId] = { sessionId: session_id, join_url };
                             await db.write();
