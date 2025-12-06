@@ -28,7 +28,6 @@
         const playersContainer = document.getElementById('players-container');
 
         function createPlayerInstance(playerId, playerName) {
-            // --- Rewritten DOM Creation Logic ---
             const card = document.createElement('div');
             card.className = 'player-card';
 
@@ -48,7 +47,6 @@
             card.appendChild(button);
             card.appendChild(logContainer);
             playersContainer.appendChild(card);
-            // --- End of Rewritten Logic ---
 
             let socket = null;
 
@@ -69,22 +67,30 @@
                     button.disabled = true;
                     button.textContent = 'Connecting...';
                     
-                    socket = io(MATCHMAKING_SERVER_URL, { transports: ['websocket'] });
+                    // --- UPDATED: Using robust connection options ---
+                    socket = io(MATCHMAKING_SERVER_URL, {
+                        transports: ['websocket', 'polling'], // Use polling as fallback
+                        reconnection: true,
+                        reconnectionDelay: 1000,
+                        reconnectionDelayMax: 5000,
+                        reconnectionAttempts: 5
+                    });
 
                     socket.on('connect', () => {
-                        log('Connected successfully! Sending request-match...', 'event');
+                        log(`Connected via ${socket.io.engine.transport.name}. Sending request...`, 'event');
                         button.disabled = false;
                         button.textContent = 'Request Match';
                         socket.emit('request-match', { playerId, playerName });
                     });
 
-                    socket.on('disconnect', () => {
-                        log('Disconnected from server.', 'error');
+                    socket.on('disconnect', (reason) => {
+                        log(`Disconnected: ${reason}`, 'error');
                         button.textContent = 'Request Match (Reconnect)';
                     });
 
                     socket.on('connect_error', (err) => {
                         log(`Connection Error: ${err.message}`, 'error');
+                        log('Server may be down or unreachable.', 'error');
                         button.disabled = false;
                         button.textContent = 'Request Match';
                     });
@@ -101,7 +107,6 @@
             });
         }
 
-        // Create 4 player instances
         createPlayerInstance('player-1', 'Alice');
         createPlayerInstance('player-2', 'Bob');
         createPlayerInstance('player-3', 'Charlie');
