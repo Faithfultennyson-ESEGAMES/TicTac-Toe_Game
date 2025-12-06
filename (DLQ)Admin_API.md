@@ -10,17 +10,29 @@ This document provides a comprehensive overview of the ESEGAMES Game Server, inc
 
 Initiates a new game session. This is the entry point for creating a playable match.
 
+**Authentication:**
+
+This endpoint is protected. You must provide the `DLQ_PASSWORD` from your `.env` file as a Bearer token in the `Authorization` header.
+
+`Authorization: Bearer <your_dlq_password>`
+
 -   **Request Body (optional):**
     -   `turn_duration_sec` (number): The duration of each turn in seconds. Defaults to `10` if not provided.
 -   **Response (201 Created):**
     -   `session_id` (string): The unique identifier for the new session.
     -   `join_url` (string): The fully qualified URL that clients use to connect to the session's real-time socket endpoint.
+    -   `signature` (string): An HMAC-SHA256 signature of the `session_id` and `join_url` to prevent tampering.
+
+**Signature Verification:**
+
+The `signature` is the hex-encoded HMAC-SHA256 digest of the JSON-stringified `{ "session_id": "...", "join_url": "..." }` payload, using the `HMAC_SECRET` from `.env`. This allows the recipient to verify that the `join_url` has not been altered.
 
 **Example Request:**
 
 ```bash
 curl -X POST http://localhost:5500/start \
      -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <your_dlq_password>" \
      -d '{"turn_duration_sec": 15}'
 ```
 
@@ -28,8 +40,9 @@ curl -X POST http://localhost:5500/start \
 
 ```json
 {
-  "session_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-  "join_url": "http://localhost:5500/session/a1b2c3d4-e5f6-7890-1234-567890abcdef/join"
+  "session_id": "e1d1b66c-663f-4c78-9f5e-8e4c06e92843",
+  "join_url": "http://example.com/session/e1d1b66c-663f-4c78-9f5e-8e4c06e92843/join",
+  "signature": "8a2b4d2dec82fa0fb81b9b6b64ddb95f7b278db2ca9e909645d06279b6767e9e"
 }
 ```
 
@@ -198,33 +211,6 @@ curl -X GET http://localhost:5500/admin/sessions/active \
      -H "Authorization: Bearer <your_dlq_password>"
 ```
 
-**Example Response Body:**
-
-```json
-[
-  {
-    "sessionId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-    "status": "active",
-    "createdAt": "2023-10-27T10:00:00.000Z",
-    "turnDurationSec": 10,
-    "turnCount": 5,
-    "currentTurnPlayerId": "player-one-id",
-    "players": [
-      {
-        "playerId": "player-one-id",
-        "playerName": "Player One",
-        "symbol": "X"
-      },
-      {
-        "playerId": "player-two-id",
-        "playerName": "Player Two",
-        "symbol": "O"
-      }
-    ]
-  }
-]
-```
-
 #### `POST /admin/sessions/:sessionId/end`
 
 Forcefully ends an active game session.
@@ -267,11 +253,33 @@ Deletes all items from the DLQ. **This is a destructive action.**
 
 ---
 
-## 5. Session Closure & Matchmaking
+## 5. Matchmaking Service Callback
 
-After a session concludes and all related webhooks are processed, the server notifies the matchmaking service that the session is officially closed.
+After a session fully concludes (win, draw, or stale), the server sends a final notification to the matchmaking service to signal that the players are now free.
 
--   **Endpoint:** It sends a `POST` request to the `${MATCHMAKING_SERVICE_URL}/session-closed`.
--   **Payload:** Includes details about the session closure.
+-   **Endpoint:** The server sends a `POST` request to the URL defined in the `MATCHMAKING_SERVICE_URL` environment variable.
+-   **Signature:** The request includes an `X-Signature` header, which is a SHA-256 HMAC digest of the raw request body, signed with the `HMAC_SECRET`. This allows the matchmaking service to verify the callback's authenticity.
+-   **Body:** The raw request body is a JSON string representing the final state of the session object.
 
-This ensures the matchmaking service can free up resources or update its state accordingly.
+**Example Callback Body (Final Session State):**
+
+```json
+{
+  "sessionId": "e1d1b66c-663f-4c78-9f5e-8e4c06e92843",
+  "status": "ended",
+  "players": [
+    { "playerId": "p1", "playerName": "Alice", "socketId": null, "symbol": "X" },
+    { "playerId": "p2", "playerName": "Bob", "socketId": null, "symbol": "O" }
+  ],
+  "board": ["X", "O", "X", "O", "X", "O", null, null, "X"],
+  "turnDurationSec": 10,
+  "createdAt": "2023-10-28T12:00:00.000Z",
+  "currentTurnPlayerId": "p1",
+  "turnTimerId": null,
+  "winState": "win",
+  "winnerPlayerId": "p1",
+  "turnCount": 7
+}
+```
+
+This notification is "fire-and-forget" and is not retried or sent to the DLQ upon failure.
