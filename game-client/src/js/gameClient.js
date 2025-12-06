@@ -16,6 +16,7 @@ class GameClient {
     };
 
     this.session = null;
+    this.turnDurationSec = null;
     this.playerSymbol = null;
     this.gameState = 'created'; // created | waiting | playing | ended
     this.turnTick = null;
@@ -132,6 +133,7 @@ class GameClient {
       current_turn_player_id: session.current_turn_player_id || session.current_turn || null,
       status: 'active',
     };
+    this.turnDurationSec = session.turn_duration_sec || null;
     this.playerSymbol = this.resolvePlayerSymbol(this.session);
     this.persistSession();
 
@@ -154,6 +156,7 @@ class GameClient {
     debug.log(`[GameClient] Turn started for ${current_turn_player_id}`);
     this.session.current_turn_player_id = current_turn_player_id;
     this.session.turn_expires_at = expires_at;
+    // keep latest duration if server provides consistent value on session
     const symbol = this.getSymbolForPlayerId(current_turn_player_id);
     this.ui.setCurrentTurn(symbol, {});
     this.startTurnTimer(expires_at);
@@ -364,12 +367,16 @@ class GameClient {
       return;
     }
     const expiry = new Date(turnExpiresAt).getTime();
+    const totalDurationSec = this.computeTurnDurationSec(expiry);
+    const warnThresholdSec = Math.max(1, Math.ceil(totalDurationSec * 0.3));
+
     this.turnTick = setInterval(() => {
       const remaining = Math.max(0, expiry - Date.now());
       const seconds = Math.ceil(remaining / 1000);
       const display = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-      this.ui.updateTimer(display, seconds <= 10 ? 'danger' : seconds <= 20 ? 'warning' : 'normal');
-      if (seconds <= 10) {
+      const isWarning = seconds <= warnThresholdSec;
+      this.ui.updateTimer(display, isWarning ? 'danger' : 'normal');
+      if (isWarning) {
         this.ui.startTimerWarning();
       } else {
         this.ui.stopTimerWarning();
@@ -379,6 +386,12 @@ class GameClient {
         this.stopTurnTimer();
       }
     }, 500);
+  }
+
+  computeTurnDurationSec(expiryMs) {
+    if (this.turnDurationSec) return this.turnDurationSec;
+    const guess = Math.ceil((expiryMs - Date.now()) / 1000);
+    return Math.max(guess, 1);
   }
 
   stopTurnTimer() {
