@@ -174,24 +174,86 @@ Any service receiving webhooks (including the matchmaking callback) or resending
 
 ---
 
-## 5. Matchmaking Service Callback
+## 5. Matchmaking Service Callback: `session-closed`
 
-After a session fully concludes, the server sends a final notification to the matchmaking service. This callback is also signed and must be verified using the same webhook verification guide above.
+When a game session concludes (win, draw, or stale), the `game-server` sends a final, "fire-and-forget" `POST` request to the `MATCHMAKING_SERVICE_URL`. This notifies the matchmaking service that the players are free and the session is complete.
 
--   **Endpoint:** The server sends a `POST` request to the URL defined in `MATCHMAKING_SERVICE_URL`.
--   **Signature:** The request includes an `X-Signature` header.
--   **Body:** The raw request body is a JSON string representing the final state of the session object.
+This callback is not retried upon failure. A failure (e.g., a `404` or `5xx` response) will be logged on the `game-server`, but no further action will be taken.
 
-**Example Callback Body (Final Session State):**
+### Implementation Guide for the Receiving Service
 
-```json
-{
-  "sessionId": "e1d1b66c-663f-4c78-9f5e-8e4c06e92843",
-  "status": "ended",
-  "players": [...],
-  "board": [...],
-  "winState": "win",
-  "winnerPlayerId": "p1",
-  ...
-}
-```
+This guide explains how a developer can set up an endpoint to correctly receive this callback.
+
+#### 1. Configure the Correct URL in `.env`
+
+The most common error is a `404 Not Found` response, which means the `game-server` sent a request to a URL path that your service isn't listening to.
+
+-   **The `MATCHMAKING_SERVICE_URL` environment variable must contain the *full and complete* URL, including the path.** The `game-server` does **not** automatically add `/session-closed`.
+
+-   **Correct `.env` configuration:**
+    ```
+    MATCHMAKING_SERVICE_URL=https://your-service-domain.com/api/session-closed
+    ```
+
+-   **Incorrect `.env` configuration:**
+    ```
+    MATCHMAKING_SERVICE_URL=https://your-service-domain.com/api/
+    ```
+
+#### 2. Implement the Endpoint
+
+Your service must implement an endpoint that adheres to the following contract:
+
+-   **Method:** `POST`
+-   **Path:** Must match the path specified in the `MATCHMAKING_SERVICE_URL`.
+
+#### 3. Verify the Request Signature (Security Requirement)
+
+Your endpoint **must** validate the `X-Signature` header to ensure the request is authentic. Failing to do so creates a security vulnerability. The process is identical to verifying any other webhook.
+
+-   **Refer to the detailed guide:** [Step-by-Step Guide: Verifying Webhook & DLQ Signatures](#step-by-step-guide-verifying-webhook-dlq-signatures) for a code example.
+-   **Key Steps:**
+    1.  Capture the **raw request body** as a string *before* it is parsed as JSON.
+    2.  Get the signature from the `X-Signature` header.
+    3.  Recalculate the signature using the shared `HMAC_SECRET` and the raw body string.
+    4.  Use a constant-time comparison to check if the signatures match.
+    5.  Reject any request with an invalid signature.
+
+#### 4. Handle the Request Body
+
+-   The request body is a JSON string representing the **entire final session object**.
+-   **Important:** The properties in the JSON object use `camelCase`, which is standard for JavaScript. When parsing the body, ensure you access properties correctly.
+
+-   **Example of accessing `sessionId` (Node.js/Express):**
+    ```javascript
+    app.post('/session-closed', verifyWebhookSignature, (req, res) => {
+      // After verification, req.body is available if you use express.json()
+      const session = req.body;
+      const { sessionId } = session; // Correct: uses camelCase
+
+      // const { session_id } = session; // Incorrect: this will be undefined
+
+      console.log(`Received closure for session: ${sessionId}`);
+      // ... your logic to free up players ...
+
+      res.status(204).send(); // Acknowledge receipt
+    });
+    ```
+-   **Full Payload Example:**
+    ```json
+    {
+      "sessionId": "ccdb7fae-68a3-4dac-9e45-92d50299f471",
+      "status": "ended",
+      "players": [...],
+      "board": [...],
+      "winState": "win",
+      "winnerPlayerId": "p1",
+      "turnCount": 5
+      // ... and all other session properties
+    }
+    ```
+
+#### 5. Send a Success Response
+
+-   To acknowledge that you have successfully received and processed the callback, your endpoint should respond with a `2xx` status code.
+-   A `200 OK` or `204 No Content` are appropriate choices.

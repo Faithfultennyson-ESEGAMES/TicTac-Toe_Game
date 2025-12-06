@@ -90,40 +90,41 @@ async function main() {
 
     // --- HTTP ROUTES ---
     app.post('/session-closed', verifyWebhookSignature, async (req, res) => {
-        const { session_id } = req.body;
-        console.log(`[Webhook] Received session-closed event for session: ${session_id}`);
+        // CORRECTED: The game-server sends 'sessionId' (camelCase) in the webhook body.
+        const { sessionId } = req.body;
+        console.log(`[Webhook] Received session-closed event for session: ${sessionId}`);
 
-        if (!session_id) {
-            console.warn('[Webhook] Received session-closed event with no session_id.');
-            return res.status(400).send('Bad Request: session_id is required.');
+        if (!sessionId) {
+            console.warn('[Webhook] Received session-closed event with no sessionId.');
+            return res.status(400).send('Bad Request: sessionId is required.');
         }
 
         try {
             await db.read();
 
             const playerIdsInSession = Object.keys(db.data.active_games).filter(
-                (playerId) => db.data.active_games[playerId].sessionId === session_id
+                (playerId) => db.data.active_games[playerId].sessionId === sessionId
             );
 
             if (playerIdsInSession.length === 0) {
-                console.log(`[Webhook] No active players found for session ${session_id}. It might have already been cleared.`);
+                console.log(`[Webhook] No active players found for session ${sessionId}. It might have already been cleared.`);
                 return res.status(200).send('Session already cleared or unknown.');
             }
 
-            console.log(`[State] Clearing active session ${session_id} for players: ${playerIdsInSession.join(', ')}`);
+            console.log(`[State] Clearing active session ${sessionId} for players: ${playerIdsInSession.join(', ')}`);
 
             for (const playerId of playerIdsInSession) {
                 delete db.data.active_games[playerId];
             }
 
-            db.data.ended_games[session_id] = { ended_at: new Date().toISOString() };
+            db.data.ended_games[sessionId] = { ended_at: new Date().toISOString() };
 
             await db.write();
 
-            console.log(`[State] Session ${session_id} successfully closed and moved to ended_games.`);
+            console.log(`[State] Session ${sessionId} successfully closed and moved to ended_games.`);
             res.status(200).send('Session successfully closed.');
         } catch (error) {
-            console.error(`[FATAL] Error processing /session-closed for session ${session_id}:`, error);
+            console.error(`[FATAL] Error processing /session-closed for session ${sessionId}:`, error);
             res.status(500).send('Internal Server Error.');
         }
     });
