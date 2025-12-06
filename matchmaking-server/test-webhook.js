@@ -1,19 +1,19 @@
 
-require('dotenv').config({ path: './.env' }); // Make sure it loads the correct .env
+require('dotenv').config({ path: './.env' });
 const crypto = require('crypto');
-const fetch = require('node-fetch'); // You might need to run: npm install node-fetch
+
+const fetchFn = global.fetch || ((...args) =>
+    import('node-fetch').then(({ default: fetch }) => fetch(...args))
+);
 
 // --- CONFIGURATION ---
-const NGROK_URL = 'https://94c4d018290c.ngrok-free.app'; // Your ngrok URL
+const NGROK_URL = 'https://94c4d018290c.ngrok-free.app';
 const ENDPOINT = '/session-closed';
 const HMAC_SECRET = process.env.MATCHMAKING_HMAC_SECRET;
 
 // --- DATA TO SEND ---
 const payload = {
-    session_id: "b2d7bd33-b428-4753-b812-316954720c77",
-    // You can add other fields here if the game-server sends them,
-    // but they won't affect the matchmaking server's logic.
-    // example: final_state: { ... }
+    session_id: "c65eb045-d7da-4638-900d-f9293c64cbde",
 };
 
 // --- SCRIPT LOGIC ---
@@ -37,12 +37,12 @@ async function sendSignedWebhook() {
     console.log(`Calculated Signature: ${signature}`);
 
     try {
-        // 2. Send the request
-        const response = await fetch(url, {
+        // 2. Send the request with the CORRECT header
+        const response = await fetchFn(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'x-matchmaking-signature': signature
+                'X-Signature': signature // CORRECTED HEADER
             },
             body: body
         });
