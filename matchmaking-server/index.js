@@ -6,7 +6,7 @@ const { Server } = require('socket.io');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const { JSONFile, Low } = require('lowdb');
-const cors = require('cors'); // Import the cors middleware
+const cors = require('cors');
 
 // --- Configuration & Initialization ---
 
@@ -25,7 +25,6 @@ const app = express();
 
 // --- Middleware ---
 
-// CORRECTED: Use cors middleware for Express to handle initial handshake
 app.use(cors());
 
 const rawBodySaver = (req, res, buf, encoding) => {
@@ -37,7 +36,6 @@ app.use(bodyParser.json({ verify: rawBodySaver }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    // Socket.IO’s cors is still useful for fine-tuning WebSocket-specific rules
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
@@ -202,7 +200,8 @@ async function main() {
         if (changed) {
             await db.write();
         }
-    }, DB_entry_TTL_MS / 4);
+    // CORRECTED: The variable name now matches its definition
+    }, DB_ENTRY_TTL_MS / 4);
 
     server.listen(PORT, () => {
         console.log(`Matchmaking server listening on http://localhost:${PORT}`);
