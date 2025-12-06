@@ -43,10 +43,11 @@ const io = new Server(server, {
 });
 
 const verifyWebhookSignature = (req, res, next) => {
-    const signature = req.headers['x-matchmaking-signature'];
+    // FIX: Look for 'x-signature' header (lowercase) as sent by the game-server.
+    const signature = req.headers['x-signature'];
     if (!signature) {
-        console.error('[Webhook Error] Signature header missing.');
-        return res.status(401).send('Signature header missing.');
+        console.error("[Webhook Error] Signature header missing. Expected \'x-signature\'.");
+        return res.status(401).send("Signature header missing. Expected \'x-signature\'.");
     }
     
     if (!req.rawBody) {

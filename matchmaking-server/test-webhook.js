@@ -1,5 +1,5 @@
 
-require('dotenv').config({ path: './.env' }); 
+require('dotenv').config({ path: './.env' });
 const crypto = require('crypto');
 
 const fetchFn = global.fetch || ((...args) =>
@@ -7,7 +7,7 @@ const fetchFn = global.fetch || ((...args) =>
 );
 
 // --- CONFIGURATION ---
-const NGROK_URL = 'https://94c4d018290c.ngrok-free.app'; // Your ngrok URL
+const NGROK_URL = 'https://94c4d018290c.ngrok-free.app';
 const ENDPOINT = '/session-closed';
 const HMAC_SECRET = process.env.MATCHMAKING_HMAC_SECRET;
 
@@ -40,7 +40,7 @@ async function sendSignedWebhook() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'x-matchmaking-signature': signature
+                'X-Signature': signature // Use the correct header for game-server spec
             },
             body: body
         });
