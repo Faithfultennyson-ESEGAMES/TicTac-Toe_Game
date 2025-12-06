@@ -31,7 +31,8 @@ const io = new Server(server, {
 
 // --- Database Setup ---
 
-const adapter = new JSONFile('matchmaking-server/db.json');
+// CORRECTED: Path is now relative to the execution directory
+const adapter = new JSONFile('db.json');
 const db = new Low(adapter);
 
 async function initializeDatabase() {
@@ -206,4 +207,3 @@ async function main() {
 }
 
 main();
-
