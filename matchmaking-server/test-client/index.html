@@ -1,0 +1,101 @@
+<html>
+<head>
+    <title>Matchmaking Test Client</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #f0f0f0; }
+        h1 { text-align: center; }
+        #players-container { display: flex; justify-content: space-around; width: 100%; max-width: 1600px; }
+        .player-card { border: 1px solid #ccc; border-radius: 8px; padding: 15px; width: 23%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .player-header { font-weight: bold; font-size: 1.2em; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
+        button { background-color: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; margin-bottom: 10px; width: 100%; }
+        button:disabled { background-color: #aaa; }
+        .log-container { height: 200px; overflow-y: scroll; border: 1px solid #e0e0e0; padding: 8px; font-family: monospace; font-size: 0.9em; background: #fafafa; }
+        .log-entry { padding: 4px; border-bottom: 1px dotted #ccc; }
+        .log-entry.event { color: #0056b3; }
+        .log-entry.error { color: #d9534f; }
+        .log-entry.info { color: #5bc0de; }
+    </style>
+</head>
+<body>
+
+    <h1>Matchmaking Test Client</h1>
+
+    <div id="players-container"></div>
+
+    <script src="https://cdn.socket.io/4.5.3/socket.io.min.js"></script>
+    <script>
+        const MATCHMAKING_SERVER_URL = 'http://localhost:3000';
+        const playersContainer = document.getElementById('players-container');
+
+        function createPlayerInstance(playerId, playerName) {
+            const card = document.createElement('div');
+            card.className = 'player-card';
+            card.innerHTML = `
+                <div class="player-header">Player: ${playerName} (${playerId})</div>
+                <button id="btn-${playerId}">Request Match</button>
+                <div class="log-container" id="log-${playerId}"></div>
+            `;
+            playersContainer.appendChild(card);
+
+            const logContainer = document.getElementById(`log-${playerId}`);
+            const button = document.getElementById(`btn-${playerId}`);
+            let socket = null;
+
+            function log(message, type = 'info') {
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${type}`;
+                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                logContainer.appendChild(entry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+
+            button.addEventListener('click', () => {
+                if (socket && socket.connected) {
+                    log('Already connected. Sending request-match...');
+                    socket.emit('request-match', { playerId, playerName });
+                } else {
+                    log('Connecting to server...');
+                    button.disabled = true;
+                    button.textContent = 'Connecting...';
+                    
+                    socket = io(MATCHMAKING_SERVER_URL, { transports: ['websocket'] });
+
+                    socket.on('connect', () => {
+                        log('Connected successfully! Sending request-match...', 'event');
+                        button.disabled = false;
+                        button.textContent = 'Request Match';
+                        socket.emit('request-match', { playerId, playerName });
+                    });
+
+                    socket.on('disconnect', () => {
+                        log('Disconnected from server.', 'error');
+                        button.textContent = 'Request Match (Reconnect)';
+                    });
+
+                    socket.on('connect_error', (err) => {
+                        log(`Connection Error: ${err.message}`, 'error');
+                        button.disabled = false;
+                        button.textContent = 'Request Match';
+                    });
+                    
+                    socket.on('match-found', (data) => {
+                        log(`MATCH FOUND! Join URL: ${data.join_url}`, 'event');
+                        log(`----------------------------------`);
+                    });
+
+                    socket.on('match-error', (data) => {
+                        log(`Error from server: ${data.message}`, 'error');
+                    });
+                }
+            });
+        }
+
+        // Create 4 player instances
+        createPlayerInstance('player-1', 'Alice');
+        createPlayerInstance('player-2', 'Bob');
+        createPlayerInstance('player-3', 'Charlie');
+        createPlayerInstance('player-4', 'Diana');
+
+    </script>
+</body>
+</html>
