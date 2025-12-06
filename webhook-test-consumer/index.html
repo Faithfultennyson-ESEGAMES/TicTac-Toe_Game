@@ -85,7 +85,10 @@
                 <label for="session-id-input">Session ID</label>
                 <input type="text" id="session-id-input" placeholder="Copy from logs or enter manually">
             </div>
-            <button id="end-session-btn">Force End Session</button>
+            <div class="button-group">
+                <button id="end-session-btn">Force End Session</button>
+                <button id="list-sessions-btn">List Active Sessions</button>
+            </div>
 
             <h2>Dead Letter Queue (DLQ)</h2>
             <div class="form-group">
@@ -130,6 +133,7 @@
             const dlqIdInput = document.getElementById('dlq-id-input');
             
             const endSessionBtn = document.getElementById('end-session-btn');
+            const listSessionsBtn = document.getElementById('list-sessions-btn');
             const listDlqBtn = document.getElementById('list-dlq-btn');
             const getDlqBtn = document.getElementById('get-dlq-btn');
             const resendDlqBtn = document.getElementById('resend-dlq-btn');
@@ -140,8 +144,6 @@
             const handlePasswordSubmit = () => {
                 viewerPassword = passwordInput.value;
                 if (!viewerPassword) { alert('Password cannot be empty.'); return; }
-                // We will attempt to fetch logs, if it succeeds, we show the main content.
-                // This implicitly validates the password.
                 fetchAndRenderLogs(); 
             };
             
@@ -167,7 +169,6 @@
 
                     if (!res.ok) throw new Error(`Server responded with status: ${res.status}`);
                     
-                    // If fetch is successful, show the main content
                     if (mainContent.style.display === 'none') {
                         passwordModal.style.display = 'none';
                         mainContent.style.display = 'grid';
@@ -254,7 +255,6 @@
 
             const startPolling = () => {
                 if(pollerInterval) clearInterval(pollerInterval);
-                // No initial fetch here, it's handled by the login logic
                 pollerInterval = setInterval(fetchAndRenderLogs, 3000);
             };
             
@@ -286,6 +286,8 @@
                 if (!sessionId) { alert('Session ID is required.'); return; }
                 sendAdminAction('end_session', { sessionId });
             });
+
+            listSessionsBtn.addEventListener('click', () => sendAdminAction('list_active_sessions'));
 
             listDlqBtn.addEventListener('click', () => sendAdminAction('list_dlq'));
             

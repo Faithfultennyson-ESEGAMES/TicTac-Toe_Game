@@ -183,7 +183,49 @@ All admin routes under `/admin/*` are protected. You must provide the `DLQ_PASSW
 
 `Authorization: Bearer <your_dlq_password>`
 
-### `POST /admin/sessions/:sessionId/end`
+### Session Management
+
+#### `GET /admin/sessions/active`
+
+Retrieves a list of all sessions that are currently active or pending (i.e., not in an `ended` state).
+
+-   **Response (200 OK):** An array of sanitized session objects.
+
+**Example Request:**
+
+```bash
+curl -X GET http://localhost:5500/admin/sessions/active \
+     -H "Authorization: Bearer <your_dlq_password>"
+```
+
+**Example Response Body:**
+
+```json
+[
+  {
+    "sessionId": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+    "status": "active",
+    "createdAt": "2023-10-27T10:00:00.000Z",
+    "turnDurationSec": 10,
+    "turnCount": 5,
+    "currentTurnPlayerId": "player-one-id",
+    "players": [
+      {
+        "playerId": "player-one-id",
+        "playerName": "Player One",
+        "symbol": "X"
+      },
+      {
+        "playerId": "player-two-id",
+        "playerName": "Player Two",
+        "symbol": "O"
+      }
+    ]
+  }
+]
+```
+
+#### `POST /admin/sessions/:sessionId/end`
 
 Forcefully ends an active game session.
 

@@ -100,6 +100,10 @@ app.post('/api/admin-action', async (req, res) => {
     let url, method, data;
 
     switch (action) {
+        case 'list_active_sessions':
+            url = `${GAME_SERVER_URL}/admin/sessions/active`;
+            method = 'GET';
+            break;
         case 'end_session':
             url = `${GAME_SERVER_URL}/admin/sessions/${params.sessionId}/end`;
             method = 'POST';
@@ -154,4 +158,3 @@ app.listen(PORT, () => {
     if (!process.env.GAME_SERVER_URL) console.warn('[WARN] GAME_SERVER_URL is not set.');
     if (!process.env.DLQ_PASSWORD) console.warn('[WARN] DLQ_PASSWORD is not set.');
 });
-
