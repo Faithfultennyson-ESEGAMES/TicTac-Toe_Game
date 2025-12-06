@@ -7,14 +7,14 @@ This Node.js application serves as the central matchmaking service for the ESEGA
 The matchmaking process follows a specific sequence of events:
 
 1.  **Client Connection**: A player's client application connects to this server via Socket.IO.
-2.  **Match Request**: The client emits a `request-match` event containing the `playerId` and `playerName`.
+2.  **Match Request**: The client emits a `request-match` event containing the `playerId` and `playerName`. The server subscribes the client to a private, `playerId`-based channel.
 3.  **Queuing**: The server adds the player to a queue. If the player is already in an active game, the server simply sends them the existing game information again.
 4.  **Match Formation**: When two players are in the queue, the server pairs them and removes them from the queue.
 5.  **Session Creation**: The server sends an authorized, server-to-server HTTP request to the `game-server`'s `/start` endpoint to create a new game session. This request is retried on failure.
 6.  **Receive Game Details**: The `game-server` responds with a unique `sessionId` and a `join_url` for the newly created game. The matchmaking server verifies this response using a shared HMAC secret.
-7.  **Notify Players**: The matchmaking server emits a `match-found` event to both matched players, providing the `join_url`.
+7.  **Notify Players of Match**: The matchmaking server emits a `match-found` event to both matched players via their private channels, providing the `join_url`.
 8.  **Session Closure**: After the game ends on the `game-server`, the `game-server` sends a `POST /session-closed` webhook back to this matchmaking server.
-9.  **State Cleanup**: The matchmaking server validates the webhook's HMAC signature. Upon successful validation, it removes the players from the `active_games` list, making them available for future matches.
+9.  **State Cleanup & Final Notification**: The matchmaking server validates the webhook's HMAC signature. It removes the players from the `active_games` list and, critically, emits a `session-ended` event to both players' clients to inform them they are free to start a new match.
 
 ---
 
@@ -97,12 +97,12 @@ Establish a connection to the matchmaking server's URL.
 import { io } from "socket.io-client";
 
 // URL should point to your matchmaking server instance
-const socket = io("http://localhost:3330");
+const socket = io("http://matchmaking-server");
 ```
 
 ### 2. Request a Match
 
-Once connected, emit a `request-match` event with a payload containing a unique `playerId` and a display `playerName`.
+Once connected, emit a `request-match` event with a payload containing a unique `playerId` and a display `playerName`. The server uses the `playerId` to manage the socket's state, allowing for robust communication even if the client briefly disconnects.
 
 ```javascript
 const playerDetails = {
@@ -115,7 +115,7 @@ socket.emit('request-match', playerDetails);
 
 ### 3. Handle Server Responses
 
-Your client should listen for two possible events from the server:
+Your client should listen for the following events from the server:
 
 **`match-found`**: This event signifies a successful match. The payload contains the URL the client should use to join the game.
 
@@ -124,8 +124,7 @@ socket.on('match-found', (data) => {
     console.log('Match Found!', data);
     // data = { sessionId: "...", join_url: "..." }
 
-    // Your client should now navigate to the join_url
-    // or use it to connect to the game-server.
+    // Your client should now navigate to the join_url.
     window.location.href = data.join_url;
 });
 ```
@@ -138,6 +137,18 @@ socket.on('match-error', (error) => {
     // error = { message: "Could not create game session." }
 
     // Display an appropriate error message to the user.
+});
+```
+
+**`session-ended` (NEW)**: This event informs the client that their game has officially concluded and been cleared from the matchmaking system. The client is now free to request a new match.
+
+```javascript
+socket.on('session-ended', (data) => {
+    console.log(`Session ${data.sessionId} has ended.`);
+    // data = { sessionId: "..." }
+
+    // Your client should now update its UI to show a "Play Again" button
+    // or similar, allowing the user to emit 'request-match' again.
 });
 ```
 
