@@ -155,6 +155,13 @@
           socket.on("match-error", (data) => {
             log(`⚠️ Error from server: ${data.message}`, "error");
           });
+
+          // NEW: Handle the session-ended event
+          socket.on('session-ended', (data) => {
+            log(`↩️ Session ${data.sessionId} has ended. You can request a new match.`, "event");
+            button.disabled = false;
+            button.textContent = 'Request New Match';
+          });
         });
       }
 
