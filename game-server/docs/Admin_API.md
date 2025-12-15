@@ -107,8 +107,11 @@ Clients should connect to the main server endpoint provided in the `joinUrl`.
 
 #### Received Events (Server to Client)
 
--   `join-error`: If a player fails to join a session.
+-   `join-error`: If a player fails to join a session. The client should display an appropriate message to the user based on the error.
     -   Payload: `{ message: string }`
+    -   Possible `message` values:
+        -   `"Session not found."`: The provided `sessionId` does not correspond to an active session. This can happen if the session ID is incorrect or the session has already ended.
+        -   `"Session is full."`: The session already has two players.
 -   `waiting-for-player`: After the first player joins, indicating the server is waiting for the second player.
 -   `game-found`: When two players have joined and the game is ready to start.
     -   Payload: `{ sessionId: string, players: Array<{ playerId, playerName, symbol }>, board: Array<null|string>, turnDurationSec: number }`
