@@ -44,7 +44,7 @@ async function _moveToDlq(endpoint, event, reason, lastStatus, deliveryAttempts)
  */
 async function _sendWithRetries(endpoint, event, attempt = 0, deliveryAttempts = []) {
   const body = JSON.stringify(event.body);
-  const signature = `sha256=${crypto.createHmac('sha256', HMAC_SECRET).update(body).digest('hex')}`;
+  const signature = crypto.createHmac('sha256', HMAC_SECRET).update(body).digest('hex');
 
   const headers = {
     'Content-Type': 'application/json',
@@ -164,7 +164,7 @@ async function resendDlqItem(dlqItem) {
     // If it fails again, it stays in the DLQ.
     const event = dlqItem.webhookPayload;
     const body = JSON.stringify(event.body);
-    const signature = `sha256=${crypto.createHmac('sha256', HMAC_SECRET).update(body).digest('hex')}`;
+    const signature = crypto.createHmac('sha256', HMAC_SECRET).update(body).digest('hex');
     const headers = {
         'Content-Type': 'application/json',
         'X-Event-Id': event.eventId,

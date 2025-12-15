@@ -39,7 +39,7 @@ router.post('/start', startRequestAuth, async (req, res) => {
   // Sign the payload
   const signature = crypto.createHmac('sha256', HMAC_SECRET).update(JSON.stringify(payload)).digest('hex');
 
-  res.set('X-Hub-Signature-256', `sha256=${signature}`);
+  res.set('X-Hub-Signature-256', signature);
   res.status(201).json(payload);
 });
 

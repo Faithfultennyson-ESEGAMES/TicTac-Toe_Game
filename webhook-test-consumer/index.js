@@ -22,16 +22,18 @@ app.use(express.json({ limit: '5mb' }));
 function verifySignature(rawBody, signatureHeader) {
     const secret = process.env.HMAC_SECRET;
     if (!secret || !signatureHeader) return false;
-    const expectedPrefix = 'sha256=';
-    if (!signatureHeader.startsWith(expectedPrefix)) return false;
 
     const computedHex = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-    const expected = `${expectedPrefix}${computedHex}`;
 
     try {
-        // Use Buffer.from to handle potential encoding issues
+        // Use Buffer.from to handle potential encoding issues and ensure timing-safe comparison.
         const receivedBuf = Buffer.from(signatureHeader, 'utf8');
-        const expectedBuf = Buffer.from(expected, 'utf8');
+        const expectedBuf = Buffer.from(computedHex, 'utf8');
+        
+        if (receivedBuf.length !== expectedBuf.length) {
+            return false;
+        }
+
         return crypto.timingSafeEqual(receivedBuf, expectedBuf);
     } catch {
         return false;
