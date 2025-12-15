@@ -43,7 +43,7 @@ function verifySignature(rawBody, signatureHeader) {
 // 1. Endpoint to RECEIVE webhooks from the game-server
 app.post('/webhook', (req, res) => {
     const eventId = req.header('X-Event-Id') || `evt_${Date.now()}`;
-    const signature = req.header('X-Signature');
+    const signature = req.header('X-Hub-Signature-256');
     // req.body is a Buffer here because of the scoped express.raw() middleware
     const isValid = verifySignature(req.body, signature);
 
@@ -56,7 +56,7 @@ app.post('/webhook', (req, res) => {
         id: eventId,
         receivedAt: new Date().toISOString(),
         eventType: req.header('X-Event-Type'),
-        sessionId: parsedBody.session_id || 'N/A',
+        sessionId: parsedBody.sessionId || 'N/A',
         signature,
         isValid,
         payload: parsedBody,
@@ -100,27 +100,27 @@ app.post('/api/admin-action', async (req, res) => {
     let url, method, data;
 
     switch (action) {
-        case 'list_active_sessions':
+        case 'listActiveSessions':
             url = `${GAME_SERVER_URL}/admin/sessions/active`;
             method = 'GET';
             break;
-        case 'end_session':
+        case 'endSession':
             url = `${GAME_SERVER_URL}/admin/sessions/${params.sessionId}/end`;
             method = 'POST';
             break;
-        case 'list_dlq':
+        case 'listDlq':
             url = `${GAME_SERVER_URL}/admin/dlq`;
             method = 'GET';
             break;
-        case 'get_dlq_item':
+        case 'getDlqItem':
             url = `${GAME_SERVER_URL}/admin/dlq/${params.dlqId}`;
             method = 'GET';
             break;
-        case 'resend_dlq_item':
+        case 'resendDlqItem':
             url = `${GAME_SERVER_URL}/admin/dlq/${params.dlqId}/resend`;
             method = 'POST';
             break;
-        case 'delete_dlq':
+        case 'deleteDlq':
             url = `${GAME_SERVER_URL}/admin/dlq`;
             method = 'DELETE';
             data = { password: DLQ_PASSWORD }; 

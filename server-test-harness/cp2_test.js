@@ -2,7 +2,7 @@ const { io } = require("socket.io-client");
 
 const SESSION_ID = process.argv[2];
 if (!SESSION_ID) {
-  console.log("Usage: node cp2_test.js <session_id>");
+  console.log("Usage: node cp2_test.js <sessionId>");
   process.exit(1);
 }
 
@@ -15,7 +15,7 @@ function joinPlayer(playerId, playerName) {
   socket.on("connect", () => {
     console.log(playerId, "connected:", socket.id);
     socket.emit("join", {
-      session_id: SESSION_ID,
+      sessionId: SESSION_ID,
       playerId,
       playerName,
     });

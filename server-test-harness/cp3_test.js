@@ -3,19 +3,19 @@ const { io } = require("socket.io-client");
 
 const SESSION_ID = process.argv[2];
 if (!SESSION_ID) {
-  console.log("Usage: node cp3_test.js <session_id>");
+  console.log("Usage: node cp3_test.js <sessionId>");
   process.exit(1);
 }
 
 // change port if needed
-const URL = "https://tictac-toegame-server-production.up.railway.app";
+const URL = "https://fd2b1ada32ea.ngrok-free.app";
 
 function makeClient(label, playerId, playerName) {
   const socket = io(URL, { transports: ["websocket"] });
 
   socket.on("connect", () => {
     console.log(`[${label}] connected:`, socket.id);
-    socket.emit("join", { session_id: SESSION_ID, playerId, playerName });
+    socket.emit("join", { sessionId: SESSION_ID, playerId, playerName });
   });
 
   socket.on("join-error", (e) => console.log(`[${label}] join-error:`, e));
@@ -47,7 +47,7 @@ setTimeout(() => {
     setTimeout(() => {
       console.log(`[${label}] make-move ->`, pos);
       sock.emit("make-move", {
-        session_id: SESSION_ID,
+        sessionId: SESSION_ID,
         playerId: label,
         position: pos,
       });

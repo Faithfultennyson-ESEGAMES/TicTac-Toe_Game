@@ -2,7 +2,7 @@ const { io } = require("socket.io-client");
 
 const SESSION_ID = process.argv[2];
 if (!SESSION_ID) {
-  console.log("Usage: node cp1_test.js <session_id>");
+  console.log("Usage: node cp1_test.js <sessionId>");
   process.exit(1);
 }
 
@@ -15,7 +15,7 @@ function joinPlayer(playerId, playerName) {
   socket.on("connect", () => {
     console.log(`[${playerId}] Connected: ${socket.id}`);
     socket.emit("join", {
-      session_id: SESSION_ID,
+      sessionId: SESSION_ID,
       playerId,
       playerName,
     });
@@ -65,7 +65,7 @@ const p1 = joinPlayer("p1", "Alice");
 setTimeout(() => {
   console.log("\n=== 30 seconds elapsed - Attempting to make a move ===");
   p1.emit("make-move", {
-    session_id: SESSION_ID,
+    sessionId: SESSION_ID,
     playerId: "p1",
     row: 0,
     col: 0,
