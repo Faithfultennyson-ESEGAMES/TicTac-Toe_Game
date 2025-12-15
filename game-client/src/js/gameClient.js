@@ -26,7 +26,7 @@ class GameClient {
 
     let socketUrl;
     try {
-      socketUrl = new URL(this.params.join_url).origin;
+      socketUrl = new URL(this.params.joinUrl).origin;
     } catch (e) {
       socketUrl = null;
     }
@@ -47,11 +47,11 @@ class GameClient {
     await audioManager.init();
     this.bindUIEvents();
 
-    if (!this.params.join_url || !this.params.sessionId || !this.localPlayer.id || !this.localPlayer.name) {
+    if (!this.params.joinUrl || !this.params.sessionId || !this.localPlayer.id || !this.localPlayer.name) {
       debug.error('[GameClient] Invalid join parameters. All are required.', this.params);
       this.ui.showOverlay({
         title: 'Invalid Link',
-        message: 'This game link is incomplete. Please ensure you have a valid join_url, player_id, and player_name.',
+        message: 'This game link is incomplete. Please ensure you have a valid joinUrl, playerId, and playerName.',
         showSpinner: false,
       });
       return;
@@ -75,7 +75,7 @@ class GameClient {
       });
 
       const joinPayload = {
-        session_id: this.params.sessionId,
+        sessionId: this.params.sessionId,
         playerId: this.localPlayer.id,
         playerName: this.localPlayer.name,
       };
@@ -107,6 +107,7 @@ class GameClient {
     this.handlersAttached = true;
     debug.log('[GameClient] Attaching socket event handlers.');
 
+    this.socketManager.on('join-error', (payload) => this.handleJoinError(payload));
     this.socketManager.on('game-found', (payload) => this.handleGameFound(payload));
     this.socketManager.on('turn-started', (payload) => this.handleTurnStarted(payload));
     this.socketManager.on('move-applied', (payload) => this.handleMoveApplied(payload));
@@ -116,24 +117,33 @@ class GameClient {
     this.socketManager.on('player-reconnected', (payload) => this.handlePlayerStatusUpdate(payload, 'reconnected'));
   }
 
+  handleJoinError(payload) {
+    debug.error('[GameClient] Join error:', payload);
+    this.ui.showOverlay({
+        title: "Could Not Join",
+        message: payload.message || "An unknown error occurred.",
+        showSpinner: false,
+    });
+  }
+
   handleGameFound(session) {
     debug.log('[GameClient] Game found. Session state:', session);
     if (session.status === 'ended') {
-      this.handleGameEnded({ session_id: session.session_id });
+      this.handleGameEnded({ sessionId: session.sessionId });
       return;
     }
 
     const normalizedPlayers = this.normalizePlayers(session.players);
     this.gameState = 'playing';
     this.session = {
-      session_id: session.session_id || session.sessionId,
+      sessionId: session.sessionId,
       players: normalizedPlayers,
       board: session.board || Array(9).fill(null),
-      turn_duration_sec: session.turn_duration_sec,
-      current_turn_player_id: session.current_turn_player_id || session.current_turn || null,
+      turnDurationSec: session.turnDurationSec,
+      currentTurnPlayerId: session.currentTurnPlayerId || null,
       status: 'active',
     };
-    this.turnDurationSec = session.turn_duration_sec || null;
+    this.turnDurationSec = session.turnDurationSec || null;
     this.playerSymbol = this.resolvePlayerSymbol(this.session);
     this.persistSession();
 
@@ -141,46 +151,46 @@ class GameClient {
     this.ui.markWinningCells([]);
     this.ui.updatePlayers(this.session.players);
     this.ui.setBoardState(this.session.board);
-    const turnSymbol = this.getSymbolForPlayerId(this.session.current_turn_player_id);
+    const turnSymbol = this.getSymbolForPlayerId(this.session.currentTurnPlayerId);
     this.ui.setCurrentTurn(turnSymbol, { message: 'Game starting!' });
 
-    if (session.turn_expires_at || session.expires_at) {
-      this.startTurnTimer(session.turn_expires_at || session.expires_at);
+    if (session.expiresAt) {
+      this.startTurnTimer(session.expiresAt);
     } else {
       this.ui.updateTimer('--');
     }
   }
 
-  handleTurnStarted({ current_turn_player_id, expires_at }) {
+  handleTurnStarted({ currentTurnPlayerId, expiresAt }) {
     if (!this.session) return;
-    debug.log(`[GameClient] Turn started for ${current_turn_player_id}`);
-    this.session.current_turn_player_id = current_turn_player_id;
-    this.session.turn_expires_at = expires_at;
+    debug.log(`[GameClient] Turn started for ${currentTurnPlayerId}`);
+    this.session.currentTurnPlayerId = currentTurnPlayerId;
+    this.session.expiresAt = expiresAt;
     // keep latest duration if server provides consistent value on session
-    const symbol = this.getSymbolForPlayerId(current_turn_player_id);
+    const symbol = this.getSymbolForPlayerId(currentTurnPlayerId);
     this.ui.setCurrentTurn(symbol, {});
-    this.startTurnTimer(expires_at);
+    this.startTurnTimer(expiresAt);
   }
 
-  handleMoveApplied({ board, current_turn_player_id }) {
+  handleMoveApplied({ board, currentTurnPlayerId }) {
     if (!this.session) return;
     debug.log('[GameClient] Move applied. New board state:', board);
     const previousBoard = Array.isArray(this.session.board) ? [...this.session.board] : Array(9).fill(null);
     this.session.board = board;
-    this.session.current_turn_player_id = current_turn_player_id;
+    this.session.currentTurnPlayerId = currentTurnPlayerId;
     this.moveLock = false;
     const placedIndex = board.findIndex((cell, idx) => cell && cell !== previousBoard[idx]);
     if (placedIndex >= 0) {
       this.ui.onMovePlaced(board[placedIndex]);
     }
     this.ui.setBoardState(board);
-    const symbol = this.getSymbolForPlayerId(current_turn_player_id);
+    const symbol = this.getSymbolForPlayerId(currentTurnPlayerId);
     this.ui.setCurrentTurn(symbol, {});
     this.stopTurnTimer();
     this.ui.updateTimer('--');
   }
 
-  handleGameEnded({ session_id }) {
+  handleGameEnded({ sessionId }) {
     if (this.gameState === 'ended') return;
     debug.log('[GameClient] Game ended notification received.');
     this.gameState = 'ended';
@@ -205,9 +215,9 @@ class GameClient {
     }, 1000);
   }
 
-  handlePlayerStatusUpdate({ player_id, playerId, status }, type) {
+  handlePlayerStatusUpdate({ playerId, status }, type) {
     if (!this.session) return;
-    const targetId = player_id || playerId;
+    const targetId = playerId;
     debug.log(`[GameClient] Player ${targetId} is now ${type}`);
 
     const playerEntry = Object.entries(this.session.players).find(([, p]) => p.id === targetId);
@@ -288,7 +298,7 @@ class GameClient {
       return;
     }
     audioManager.ensureContextReady()?.catch?.(() => {});
-    const currentTurnSymbol = this.getSymbolForPlayerId(this.session.current_turn_player_id);
+    const currentTurnSymbol = this.getSymbolForPlayerId(this.session.currentTurnPlayerId);
     if (this.playerSymbol !== currentTurnSymbol) {
       this.ui.toast('Not your turn.');
       return;
@@ -300,7 +310,7 @@ class GameClient {
 
     this.moveLock = true;
     const movePayload = {
-      session_id: this.session.session_id,
+      sessionId: this.session.sessionId,
       playerId: this.localPlayer.id,
       position: index,
     };
@@ -407,7 +417,7 @@ class GameClient {
   persistSession() {
     if (!this.session || !this.localPlayer.id || !this.playerSymbol) return;
     const data = JSON.stringify({
-      sessionId: this.session.session_id,
+      sessionId: this.session.sessionId,
       playerId: this.localPlayer.id,
       symbol: this.playerSymbol,
     });

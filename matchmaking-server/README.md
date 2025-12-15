@@ -1,31 +1,23 @@
+
 # Matchmaking Server for ESEGAMES
 
-This Node.js application serves as the central matchmaking service for the ESEGAMES platform. Its primary role is to queue players, form matches, and coordinate with the `game-server` to create game sessions. It maintains a simple state of the player queue and active games using a local JSON file (`db.json`).
+This Node.js application is the central matchmaking service for the ESEGAMES platform. It manages a player queue, forms matches, and communicates with the `game-server` to create game sessions. It maintains a simple state of the player queue and active games using a local JSON file (`db.json`).
 
 ## High-Level Workflow
 
-The matchmaking process follows a specific sequence of events:
-
-1.  **Client Connection**: A player's client application connects to this server via Socket.IO.
-2.  **Match Request**: The client emits a `request-match` event containing the `playerId` and `playerName`. The server subscribes the client to a private, `playerId`-based channel.
-3.  **Queuing**: The server adds the player to a queue. If the player is already in an active game, the server simply sends them the existing game information again.
-4.  **Match Formation**: When two players are in the queue, the server pairs them and removes them from the queue.
-5.  **Session Creation**: The server sends an authorized, server-to-server HTTP request to the `game-server`'s `/start` endpoint to create a new game session. This request is retried on failure.
-6.  **Receive Game Details**: The `game-server` responds with a unique `sessionId` and a `join_url` for the newly created game. The matchmaking server verifies this response using a shared HMAC secret.
-7.  **Notify Players of Match**: The matchmaking server emits a `match-found` event to both matched players via their private channels, providing the `join_url`.
-8.  **Session Closure**: After the game ends on the `game-server`, the `game-server` sends a `POST /session-closed` webhook back to this matchmaking server.
-9.  **State Cleanup & Final Notification**: The matchmaking server validates the webhook's HMAC signature. It removes the players from the `active_games` list and, critically, emits a `session-ended` event to both players' clients to inform them they are free to start a new match.
+1.  **Client Connection**: A player connects to this server via Socket.IO.
+2.  **Match Request**: The client emits a `request-match` event with their `playerId` and `playerName`.
+3.  **Queuing**: The player is added to a queue. If two players are present, a match is formed.
+4.  **Session Creation**: The server sends a signed, server-to-server `POST` request to the `game-server`'s `/start` endpoint.
+5.  **Receive Game Details**: The `game-server` responds with a `sessionId` and a `joinUrl`. This response is verified using a shared HMAC secret.
+6.  **Notify Players**: The server emits a `match-found` event to both players, providing the `sessionId` and `joinUrl`.
+7.  **Client Redirect**: The clients construct the final game URL using the received data and redirect the players to the game client.
+8.  **Session Closure**: After the game ends, the `game-server` sends a `POST /session-closed` webhook back to this server.
+9.  **State Cleanup**: This server validates the webhook, removes the players from the active games list, and emits a `session-ended` event to notify the clients they can play again.
 
 ---
 
 ## Getting Started
-
-Follow these instructions to set up and run the matchmaking server locally.
-
-### Prerequisites
-
-*   [Node.js](https://nodejs.org/) (v16 or later recommended)
-*   npm (comes bundled with Node.js)
 
 ### 1. Installation
 
@@ -35,120 +27,104 @@ Clone the repository and install the dependencies.
 npm install
 ```
 
-### 2. Configuration (.env file)
+### 2. Configuration (`.env` file)
 
-Create a `.env` file in the `matchmaking-server/` directory. This file is critical for configuring the server's behavior and security settings.
+Create a `.env` file in the `matchmaking-server/` directory. This is essential for configuring the server.
 
 ```bash
 # .env
 
-# The port the matchmaking server will run on.
+# Port for the matchmaking server.
 PORT=3330
 
-# The base URL for the game-server API. This is used to create new sessions.
-# Example: http://localhost:3000
-GAME_SERVER_URL=http://localhost:3000
+# Base URL for the game-server API (e.g., http://localhost:5500).
+GAME_SERVER_URL=http://localhost:5500
 
-# A secret bearer token sent in the 'Authorization' header to the game-server
-# when requesting a new session. The game-server must be configured to validate this token.
-MATCHMAKING_AUTH_TOKEN=your_strong_secret_auth_token
+# The shared password for authenticating with the game-server's protected endpoints.
+# This MUST match the DLQ_PASSWORD in the game-server's .env file.
+DLQ_PASSWORD=your_strong_secret_password
 
-# A shared secret key used for HMAC-SHA256 signature verification.
-# This is used for two purposes:
-# 1. Verifying that responses from the game-server's /start endpoint are authentic.
-# 2. Verifying that incoming webhooks to /session-closed are from the game-server.
-MATCHMAKING_HMAC_SECRET=your_very_strong_hmac_secret
+# A shared secret for HMAC-SHA256 signature verification.
+# This MUST match the HMAC_SECRET in the game-server's .env file.
+HMAC_SECRET=your_very_strong_hmac_secret
 
-# The maximum number of times to retry creating a session if the game-server is unresponsive.
-# Default: 3
+# --- Optional Settings ---
 MAX_SESSION_CREATION_ATTEMPTS=3
-
-# The delay in milliseconds between session creation retries.
-# Default: 1500
 SESSION_CREATION_RETRY_DELAY_MS=1500
-
-# Time-to-live for records in the 'ended_games' database. Old records are not automatically pruned.
-# Default: 3600000 (1 hour)
 DB_ENTRY_TTL_MS=3600000
 ```
 
 ### 3. Running the Server
 
-Once configured, you can start the server with:
-
 ```bash
 node index.js
 ```
 
-You should see a confirmation message in your console:
-`Matchmaking server listening on http://localhost:3330`
 
 ---
 
 ## Client Integration Guide
 
-To build a client application that interacts with this server, you must use Socket.IO.
+Clients must use Socket.IO to connect and interact with this server.
 
-### 1. Connect to the Server
-
-Establish a connection to the matchmaking server's URL.
+### 1. Connect and Request a Match
 
 ```javascript
 import { io } from "socket.io-client";
 
-// URL should point to your matchmaking server instance
-const socket = io("http://matchmaking-server");
-```
+const socket = io("http://localhost:3330"); // Your matchmaking server URL
 
-### 2. Request a Match
-
-Once connected, emit a `request-match` event with a payload containing a unique `playerId` and a display `playerName`. The server uses the `playerId` to manage the socket's state, allowing for robust communication even if the client briefly disconnects.
-
-```javascript
 const playerDetails = {
-    playerId: 'user-12345-abcdef', // A unique, stable identifier for the player
-    playerName: 'RizzoTheRat'       // A display name for the player
+    playerId: 'user-12345-abcdef', // A unique, stable identifier
+    playerName: 'RizzoTheRat'      // Display name
 };
 
 socket.emit('request-match', playerDetails);
 ```
 
-### 3. Handle Server Responses
+### 2. Handle Server Responses
 
-Your client should listen for the following events from the server:
+Your client must handle three key events.
 
-**`match-found`**: This event signifies a successful match. The payload contains the URL the client should use to join the game.
+**`match-found`**: The server has found a match and created a game session. The payload contains the necessary information to join.
 
 ```javascript
 socket.on('match-found', (data) => {
     console.log('Match Found!', data);
-    // data = { sessionId: "...", join_url: "..." }
+    // data = { 
+    //   sessionId: "d2c1ba68-ab40-46b5-9651-b48ed4cb8069",
+    //   joinUrl: "http://game-server:5500/session/d2c1ba68-ab40-46b5-9651-b48ed4cb8069/join"
+    // }
 
-    // Your client should now navigate to the join_url.
-    window.location.href = data.join_url;
+    // IMPORTANT: Construct the URL for the game client, passing the details as query parameters.
+    const gameClientUrl = new URL('http://localhost:8080/index.html'); // URL to your game client
+    gameClientUrl.searchParams.set('joinUrl', data.joinUrl);
+    gameClientUrl.searchParams.set('playerId', playerDetails.playerId);
+    gameClientUrl.searchParams.set('playerName', playerDetails.playerName);
+
+    // Redirect the user to the game client.
+    window.location.href = gameClientUrl.toString();
 });
 ```
 
-**`match-error`**: This event signifies a failure. This can happen if the server fails to create a game session after multiple retries.
+**`match-error`**: The server failed to create a game session.
 
 ```javascript
 socket.on('match-error', (error) => {
     console.error('Matchmaking Error:', error.message);
     // error = { message: "Could not create game session." }
-
-    // Display an appropriate error message to the user.
+    // Display a "Try again" UI to the user.
 });
 ```
 
-**`session-ended` (NEW)**: This event informs the client that their game has officially concluded and been cleared from the matchmaking system. The client is now free to request a new match.
+**`session-ended`**: The game has officially concluded. The user is now free to request a new match.
 
 ```javascript
 socket.on('session-ended', (data) => {
     console.log(`Session ${data.sessionId} has ended.`);
     // data = { sessionId: "..." }
 
-    // Your client should now update its UI to show a "Play Again" button
-    // or similar, allowing the user to emit 'request-match' again.
+    // Update the UI to allow the user to start a new match search.
 });
 ```
 
@@ -156,34 +132,28 @@ socket.on('session-ended', (data) => {
 
 ## Backend API Endpoints
 
-The server exposes one HTTP endpoint for backend-to-backend communication.
+The server exposes one HTTP endpoint for server-to-server communication.
 
 ### `POST /session-closed`
 
-This endpoint is designed to be called by the `game-server` when a game session has officially ended. This is critical for freeing up players for new matches.
+This endpoint is called by the `game-server` when a session ends.
 
 *   **Method**: `POST`
-*   **Security**: The endpoint is protected by HMAC signature verification. The caller **must** include an `X-Signature` header containing the HMAC-SHA256 signature of the raw request body, using the shared `MATCHMAKING_HMAC_SECRET`.
-*   **Request Body**: A JSON object containing the ID of the session that ended.
+*   **Security**: The caller **must** include an `X-Hub-Signature-256` header containing the HMAC-SHA256 signature of the raw request body, using the shared `HMAC_SECRET`.
+*   **Request Body**: The full `session.ended` webhook payload from the game server. The matchmaking server will extract the `sessionId` from this object.
+
     ```json
     {
-      "sessionId": "ccdb7fae-68a3-4dac-9e45-92d50299f471"
+      "sessionId": "ccdb7fae-68a3-4dac-9e45-92d50299f471",
+      "status": "ended",
+      "players": [...],
+      "board": [...],
+      "winnerPlayerId": "p1",
+      // ... and other session fields
     }
     ```
-*   **Success Response**:
-    *   `200 OK`: If the session was found in the `active_games` list and successfully cleared.
-    *   `200 OK`: If the session was not found (it may have been cleared by a duplicate webhook already).
-*   **Error Response**:
-    *   `400 Bad Request`: If the `sessionId` is missing from the request body.
-    *   `401 Unauthorized`: If the `X-Signature` header is missing.
-    *   `403 Forbidden`: If the `X-Signature` is invalid.
-
----
-
-## Database (`db.json`)
-
-The server uses a simple file-based database (`db.json`) for state management. It contains three main keys:
-
-*   `queue`: An array of player objects waiting for a match. Players are removed from here as soon as they are paired.
-*   `active_games`: An object mapping a `playerId` to their active `sessionId` and `join_url`. This prevents a player from joining multiple games at once.
-*   `ended_games`: A log of sessions that have been closed via the webhook. This is for historical purposes and is not used in the active matchmaking logic.
+*   **Success Response**: `200 OK`
+*   **Error Responses**:
+    *   `400 Bad Request`: If `sessionId` is missing.
+    *   `401 Unauthorized`: If the signature header is missing.
+    *   `403 Forbidden`: If the signature is invalid.
