@@ -119,8 +119,13 @@ Clients should connect to the main server endpoint provided in the `joinUrl`.
     -   Payload: `{ currentTurnPlayerId: string, expiresAt: string }` (ISO 8601 timestamp)
 -   `move-applied`: Confirms a move has been made and updates the game state.
     -   Payload: `{ board: Array<null|string>, currentTurnPlayerId: string }`
--   `move-error`: If a move is invalid (not player's turn, invalid position).
+-   `move-error`: If a move is invalid. The client should prevent the user from retrying the move and wait for the next turn.
     -   Payload: `{ message: string }`
+    -   Possible `message` values:
+        -   `"Not your turn."`
+        -   `"Invalid position."`
+        -   `"Position already taken."`
+        -   `"Game is not active."`
 -   `game-ended`: When the game finishes (win, draw, or other condition). The client should display a neutral end screen. The actual winner is **only** sent via webhook.
     -   Payload: `{ reason: 'win' | 'draw' | 'stale', board: Array<null|string> }`
 -   `player-disconnected`: When a player loses their socket connection.
@@ -283,3 +288,40 @@ Deletes all items from the DLQ. This is a bulk operation.
 
 -   **Response (200 OK):** `{ "message": "All DLQ items deleted.", "deletedCount": 42 }`
 
+---
+
+## 5. Configuration (.env)
+
+To run the server, you must create a `.env` file in the `game-server` root directory. This file stores essential configuration variables.
+
+-   `PORT`
+    -   **Purpose:** The port on which the HTTP and Socket.IO server will run.
+    -   **Default:** `5500`
+
+-   `HMAC_SECRET`
+    -   **Purpose:** A long, secret string used to sign and verify all outgoing webhooks and the `/start` endpoint response. This secret must be shared with any service that needs to verify signatures.
+    -   **Example:** `your-super-secret-hmac-string`
+
+-   `DLQ_PASSWORD`
+    -   **Purpose:** The password used to protect all administrative endpoints (`/admin/*`) and the `/start` endpoint. Passed as a Bearer token.
+    -   **Example:** `a-very-strong-admin-password`
+
+-   `WEBHOOK_ENDPOINTS`
+    -   **Purpose:** A comma-separated list of URLs to which the server will send all webhook events.
+    -   **Example:** `https://api.example.com/webhook,https://another-service.com/events`
+
+-   `MAX_WEBHOOK_ATTEMPTS`
+    -   **Purpose:** The maximum number of times the server will attempt to send a webhook before moving it to the DLQ.
+    -   **Default:** `3`
+
+-   `RETRY_SCHEDULE_MS`
+    -   **Purpose:** A comma-separated list of delays (in milliseconds) for webhook retries. The number of entries should ideally match `MAX_WEBHOOK_ATTEMPTS` - 1.
+    -   **Example:** `1000,5000` (Retry after 1s, then after 5s)
+
+-   `MATCHMAKING_SERVICE_URL`
+    -   **Purpose:** The full URL (including path) for the matchmaking service's `/session-closed` callback endpoint.
+    -   **Example:** `http://localhost:3000/session-closed`
+
+-   `SESSION_LOG_TTL_MS`
+    -   **Purpose:** The time-to-live for session log files, in milliseconds. After this duration, the logs are automatically deleted.
+    -   **Default:** `3600000` (1 hour)
