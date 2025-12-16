@@ -3,9 +3,10 @@ import debug from './debug.js';
 const parseQueryParams = () => {
   const params = new URLSearchParams(window.location.search);
 
-  const joinUrl = params.get('joinUrl');
-  const playerId = params.get('playerId');
-  const playerName = params.get('playerName');
+  // Support both camelCase and snake_case for flexibility.
+  const joinUrl = params.get('joinUrl') || params.get('join_url');
+  const playerId = params.get('playerId') || params.get('player_id');
+  const playerName = params.get('playerName') || params.get('player_name');
 
   let sessionId = null;
   if (joinUrl) {

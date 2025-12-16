@@ -1,0 +1,101 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game URL Generator</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        h1 {
+            margin-top: 0;
+            color: #1c1e21;
+        }
+        input {
+            width: 100%;
+            padding: 0.8rem;
+            margin: 1rem 0;
+            border: 1px solid #dddfe2;
+            border-radius: 6px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 0.8rem;
+            font-size: 1rem;
+            border: none;
+            border-radius: 6px;
+            background-color: #1877f2;
+            color: white;
+            cursor: pointer;
+            margin-top: 0.5rem;
+        }
+        button:hover {
+            background-color: #166fe5;
+        }
+        .p2 {
+            background-color: #42b72a;
+        }
+        .p2:hover {
+            background-color: #36a420;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Game URL Generator</h1>
+        <label for="sessionId">Enter Session ID:</label>
+        <input type="text" id="sessionId" placeholder="e.g., 951823d3-34e5-4dfc-aa5d-2785e3ca0b04">
+        <button id="player1Btn">Generate for Player 1 (Alice)</button>
+        <button id="player2Btn" class="p2">Generate for Player 2 (Bob)</button>
+    </div>
+
+    <script>
+        const GAME_CLIENT_URL = "https://darkviolet-elk-722089.hostingersite.com/";
+        const GAME_SERVER_URL = "https://tictac-toegame-server-production.up.railway.app";
+
+        function generateAndOpenUrl(playerId, playerName) {
+            const sessionId = document.getElementById('sessionId').value.trim();
+            if (!sessionId) {
+                alert('Please enter a Session ID.');
+                return;
+            }
+
+            const joinUrl = `${GAME_SERVER_URL}/session/${sessionId}/join`;
+            
+            const gameClientUrl = new URL(GAME_CLIENT_URL);
+            gameClientUrl.searchParams.set('joinUrl', joinUrl);
+            gameClientUrl.searchParams.set('playerId', playerId);
+            gameClientUrl.searchParams.set('playerName', playerName);
+            
+            window.open(gameClientUrl.toString(), '_blank');
+        }
+
+        document.getElementById('player1Btn').addEventListener('click', () => {
+            generateAndOpenUrl('player1', 'Alice');
+        });
+
+        document.getElementById('player2Btn').addEventListener('click', () => {
+            generateAndOpenUrl('player2', 'Bob');
+        });
+    </script>
+
+</body>
+</html>

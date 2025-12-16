@@ -1,3 +1,4 @@
+
 import debug from './debug.js';
 import audioManager from "./audioManager.js";
 import UIManager from "./uiManager.js";
@@ -26,7 +27,10 @@ class GameClient {
 
     let socketUrl;
     try {
-      socketUrl = new URL(this.params.joinUrl).origin;
+      // Construct the WebSocket URL from the joinUrl's origin.
+      const origin = new URL(this.params.joinUrl).origin;
+      // Replace http with ws for WebSocket connection.
+      socketUrl = origin.replace(/^http/, 'ws');
     } catch (e) {
       socketUrl = null;
     }
@@ -51,7 +55,7 @@ class GameClient {
       debug.error('[GameClient] Invalid join parameters. All are required.', this.params);
       this.ui.showOverlay({
         title: 'Invalid Link',
-        message: 'This game link is incomplete. Please ensure you have a valid joinUrl, playerId, and playerName.',
+        message: 'This game link is incomplete. Please ensure you have a valid join_url, player_id, and player_name.',
         showSpinner: false,
       });
       return;
