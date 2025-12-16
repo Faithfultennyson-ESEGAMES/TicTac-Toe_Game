@@ -23,8 +23,6 @@ class AudioManager {
       gameLost: './assets/sounds/GameLost.mp3',
     };
 
-    console.info('[Audio] initializing');
-
     await Promise.all(
       Object.entries(manifest).map(([key, src]) => this.preloadAudioElement(key, src)),
     );
@@ -47,7 +45,6 @@ class AudioManager {
     }
 
     this.initialized = true;
-    console.info('[Audio] initialized');
   }
 
   async preloadAudioElement(key, src) {
@@ -58,11 +55,9 @@ class AudioManager {
         audio.loop = true;
       }
       audio.addEventListener('canplaythrough', () => {
-        console.info('[Audio] loaded', key, audio.src);
         resolve();
       }, { once: true });
       audio.addEventListener('error', (e) => {
-        console.warn('[Audio] load error', key, audio.src, e);
         resolve();
       }, { once: true });
       audio.load();
@@ -79,7 +74,6 @@ class AudioManager {
       const arrayBuffer = await response.arrayBuffer();
       this.timerBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
     } catch (error) {
-      console.warn('Failed to prepare timer buffer', error);
       this.timerBuffer = null;
     }
   }
@@ -95,9 +89,7 @@ class AudioManager {
     if (this.audioContext && this.audioContext.state === 'suspended') {
       try {
         await this.audioContext.resume();
-        console.info('[Audio] context resumed');
       } catch (error) {
-        console.warn('Audio context resume failed', error);
       }
     }
   }
@@ -117,7 +109,6 @@ class AudioManager {
           await playPromise;
         }
       } catch (error) {
-        console.warn('[Audio] play failed', name, error?.message || error);
         // Fallback only if nothing started playing
         if (audio.paused) {
           try {
@@ -127,9 +118,7 @@ class AudioManager {
             if (clonePromise?.catch) {
               await clonePromise;
             }
-            console.info('[Audio] fallback clone played', name);
           } catch (err) {
-            console.warn('[Audio] fallback clone failed', name, err?.message || err);
           }
         }
       }
@@ -155,7 +144,6 @@ class AudioManager {
         this.timerSource = source;
         return;
       } catch (error) {
-        console.warn('[Audio] timer start failed', error);
       }
     }
 

@@ -1,5 +1,4 @@
 
-import debug from './debug.js';
 import audioManager from "./audioManager.js";
 import UIManager from "./uiManager.js";
 import SocketManager from "./socketManager.js";
@@ -36,7 +35,6 @@ class GameClient {
     }
     this.socketUrl = socketUrl;
     this.apiBase = this.socketUrl ? `${this.socketUrl}/api` : '';
-    debug.log('[GameClient] Target server:', this.socketUrl);
 
     this.socketManager = new SocketManager({
       url: this.socketUrl,
@@ -52,7 +50,6 @@ class GameClient {
     this.bindUIEvents();
 
     if (!this.params.joinUrl || !this.params.sessionId || !this.localPlayer.id || !this.localPlayer.name) {
-      debug.error('[GameClient] Invalid join parameters. All are required.', this.params);
       this.ui.showOverlay({
         title: 'Invalid Link',
         message: 'This game link is incomplete. Please ensure you have a valid join_url, player_id, and player_name.',
@@ -84,11 +81,9 @@ class GameClient {
         playerName: this.localPlayer.name,
       };
 
-      debug.log('[GameClient] Emitting join event with payload:', joinPayload);
       this.socketManager.emit('join', joinPayload);
 
     } catch (error) {
-      debug.error('[GameClient] Initialization failed:', error);
       const reason = error?.message || 'Unknown error';
       this.ui.showOverlay({
         title: 'Connection Failed',
@@ -109,7 +104,6 @@ class GameClient {
   attachSocketHandlers() {
     if (this.handlersAttached) return;
     this.handlersAttached = true;
-    debug.log('[GameClient] Attaching socket event handlers.');
 
     this.socketManager.on('join-error', (payload) => this.handleJoinError(payload));
     this.socketManager.on('game-found', (payload) => this.handleGameFound(payload));
@@ -122,7 +116,6 @@ class GameClient {
   }
 
   handleJoinError(payload) {
-    debug.error('[GameClient] Join error:', payload);
     this.ui.showOverlay({
         title: "Could Not Join",
         message: payload.message || "An unknown error occurred.",
@@ -131,7 +124,6 @@ class GameClient {
   }
 
   handleGameFound(session) {
-    debug.log('[GameClient] Game found. Session state:', session);
     if (session.status === 'ended') {
       this.handleGameEnded({ sessionId: session.sessionId });
       return;
@@ -167,7 +159,6 @@ class GameClient {
 
   handleTurnStarted({ currentTurnPlayerId, expiresAt }) {
     if (!this.session) return;
-    debug.log(`[GameClient] Turn started for ${currentTurnPlayerId}`);
     this.session.currentTurnPlayerId = currentTurnPlayerId;
     this.session.expiresAt = expiresAt;
     // keep latest duration if server provides consistent value on session
@@ -178,7 +169,6 @@ class GameClient {
 
   handleMoveApplied({ board, currentTurnPlayerId }) {
     if (!this.session) return;
-    debug.log('[GameClient] Move applied. New board state:', board);
     const previousBoard = Array.isArray(this.session.board) ? [...this.session.board] : Array(9).fill(null);
     this.session.board = board;
     this.session.currentTurnPlayerId = currentTurnPlayerId;
@@ -196,7 +186,6 @@ class GameClient {
 
   handleGameEnded({ sessionId }) {
     if (this.gameState === 'ended') return;
-    debug.log('[GameClient] Game ended notification received.');
     this.gameState = 'ended';
     this.moveLock = false;
     this.stopTurnTimer();
@@ -222,7 +211,6 @@ class GameClient {
   handlePlayerStatusUpdate({ playerId, status }, type) {
     if (!this.session) return;
     const targetId = playerId;
-    debug.log(`[GameClient] Player ${targetId} is now ${type}`);
 
     const playerEntry = Object.entries(this.session.players).find(([, p]) => p.id === targetId);
     const player = playerEntry ? playerEntry[1] : null;
@@ -234,7 +222,6 @@ class GameClient {
   }
 
   handleConnectionStatus(status) {
-    debug.log(`[GameClient] Connection status changed to: ${status}`);
     this.ui.setConnectionStatus(status, status.charAt(0).toUpperCase() + status.slice(1));
 
     if (status === 'connected') {
@@ -257,10 +244,8 @@ class GameClient {
   }
 
   async attemptRejoin() {
-    debug.log('[GameClient] Attempting to rejoin session.');
     const cached = this.restoreSession();
     if (!cached) {
-        debug.warn('[GameClient] No session found in storage to rejoin.');
         this.ui.showOverlay({
             title: 'Cannot Rejoin',
             message: 'No previous session data found. Please use a valid game link to join.',
@@ -285,7 +270,6 @@ class GameClient {
       this.playerSymbol = this.resolvePlayerSymbol(state);
       this.persistSession(); // Re-persist with the latest data
       this.ui.toast('Successfully rejoined match.');
-      debug.log('[GameClient] Rejoin successful.');
     } else {
       this.clearPersistedSession();
       this.ui.showOverlay({
@@ -293,7 +277,6 @@ class GameClient {
         message: 'The previous session has ended or could not be found.',
         showSpinner: false,
       });
-      debug.warn('[GameClient] Rejoin failed: Session ended or not found.');
     }
   }
 
@@ -318,11 +301,9 @@ class GameClient {
       playerId: this.localPlayer.id,
       position: index,
     };
-    debug.log('[GameClient] Emitting make-move event:', movePayload);
 
     this.socketManager.makeMove(movePayload).catch(err => {
       this.moveLock = false;
-      debug.error('[GameClient] Failed to submit move:', err);
       this.ui.toast('Move submission failed.');
     });
   }
@@ -330,7 +311,6 @@ class GameClient {
   handleMoveError(error = {}) {
     this.moveLock = false;
     const message = error?.message || 'Move was rejected.';
-    debug.warn('[GameClient] Move rejected by server:', message);
     this.ui.toast(message);
   }
 
@@ -426,7 +406,6 @@ class GameClient {
       symbol: this.playerSymbol,
     });
     sessionStorage.setItem(STORAGE_KEY, data);
-    debug.log('[GameClient] Session persisted to storage.');
   }
 
   restoreSession() {
@@ -434,17 +413,14 @@ class GameClient {
       const raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const data = JSON.parse(raw);
-      debug.log('[GameClient] Session restored from storage:', data);
       return data;
     } catch (error) {
-      debug.warn('[GameClient] Failed to restore session:', error);
       return null;
     }
   }
 
   clearPersistedSession() {
     sessionStorage.removeItem(STORAGE_KEY);
-    debug.log('[GameClient] Cleared persisted session from storage.');
   }
 
   async fetchSessionState(sessionId) {
@@ -454,7 +430,6 @@ class GameClient {
       if (!response.ok) return null;
       return await response.json();
     } catch (error) {
-      debug.error('[GameClient] Failed to fetch session state:', error);
       return null;
     }
   }

@@ -1,4 +1,4 @@
-const IS_DEBUG_MODE = true; // Switch to false to disable logs
+const IS_DEBUG_MODE = false; // Switch to false to disable logs
 
 const log = (...args) => {
   if (IS_DEBUG_MODE) {
