@@ -55,6 +55,12 @@ class UIManager {
     });
   }
 
+  setSelectedSymbol(index) {
+    this.cells.forEach((cell, i) => {
+        cell.classList.toggle('selected', i === index);
+    });
+  }
+
   markWinningCells(cells = []) {
     this.cells.forEach((cell, index) => {
       if (cells.includes(index)) {

@@ -1,3 +1,4 @@
+
 :root {
   --color-bg: #10131a;
   --color-surface: #161b24;
@@ -170,7 +171,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--transition-fast), transform var(--transition-fast);
+  transition: background var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-slow);
   color: var(--color-primary-light);
 }
 
@@ -186,6 +187,12 @@ button:disabled {
 .board-cell.winning {
   background: rgba(74, 159, 255, 0.16);
   color: #fff;
+}
+
+.board-cell.selected {
+  background: rgba(74, 159, 255, 0.2);
+  box-shadow: 0 0 16px -4px var(--color-primary);
+  transform: scale(1.05);
 }
 
 .controls {

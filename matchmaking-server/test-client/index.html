@@ -76,20 +76,27 @@
       header.className = 'player-header';
       header.textContent = `Player: ${playerName} (${playerId})`;
 
-      const button = document.createElement('button');
-      button.id = `btn-${playerId}`;
-      button.textContent = 'Request Match';
+      const requestButton = document.createElement('button');
+      requestButton.id = `btn-${playerId}`;
+      requestButton.textContent = 'Request Match';
+      
+      const reportButton = document.createElement('button');
+      reportButton.id = `btn-report-${playerId}`;
+      reportButton.textContent = 'Report Invalid Session';
+      reportButton.disabled = true;
 
       const logContainer = document.createElement('div');
       logContainer.id = `log-${playerId}`;
       logContainer.className = 'log-container';
 
       card.appendChild(header);
-      card.appendChild(button);
+      card.appendChild(requestButton);
+      card.appendChild(reportButton);
       card.appendChild(logContainer);
       playersContainer.appendChild(card);
 
       let socket = null;
+      let currentSessionId = null;
 
       function log(message, type = 'info') {
         const entry = document.createElement('div');
@@ -103,14 +110,14 @@
       function connectAndRequest() {
         ensureSocketIoLoaded(() => {
           log('Connecting to server...', 'info');
-          button.disabled = true;
-          button.textContent = 'Connecting...';
+          requestButton.disabled = true;
+          requestButton.textContent = 'Connecting...';
 
           if (socket) socket.disconnect();
 
           socket = io(MATCHMAKING_SERVER_URL, {
             path: "/socket.io",
-            transports: ["websocket", "polling"],   // try WS, fall back to polling
+            transports: ["websocket", "polling"],
             upgrade: true,
             rememberUpgrade: true,
             timeout: 20000,
@@ -124,8 +131,8 @@
           socket.on("connect", () => {
             log(`✅ Connected! socketId=${socket.id}`, "event");
             log(`Transport: ${socket.io.engine.transport.name}`, "info");
-            button.disabled = false;
-            button.textContent = 'Request Match';
+            requestButton.disabled = false;
+            requestButton.textContent = 'Request Match';
             socket.emit("request-match", { playerId, playerName });
           });
 
@@ -136,42 +143,63 @@
           socket.on("disconnect", (reason) => {
             log(`❌ Disconnected: ${reason}`, "error");
             log("If this happens instantly, it's usually CORS/Origin or mixed-content.", "error");
-            button.textContent = 'Request Match (Reconnect)';
-            button.disabled = false;
+            requestButton.textContent = 'Request Match (Reconnect)';
+            requestButton.disabled = false;
+            reportButton.disabled = true;
+            currentSessionId = null;
           });
 
           socket.on("connect_error", (err) => {
             log(`❌ Connection Error: ${err.message}`, "error");
             log("Tip: confirm server allows your Origin (iframe/webview/file://).", "error");
-            button.disabled = false;
-            button.textContent = 'Request Match';
+            requestButton.disabled = false;
+            requestButton.textContent = 'Request Match';
           });
 
           socket.on("match-found", (data) => {
-            log(`🎉 MATCH FOUND! Join URL: ${data.join_url}`, "event");
+            log(`🎉 MATCH FOUND! Session ID: ${data.sessionId}`, "event");
+            log(`Join URL: ${data.joinUrl}`, "info");
             log(`----------------------------------`, "info");
+            currentSessionId = data.sessionId;
+            reportButton.disabled = false;
           });
 
           socket.on("match-error", (data) => {
             log(`⚠️ Error from server: ${data.message}`, "error");
           });
 
-          // NEW: Handle the session-ended event
           socket.on('session-ended', (data) => {
             log(`↩️ Session ${data.sessionId} has ended. You can request a new match.`, "event");
-            button.disabled = false;
-            button.textContent = 'Request New Match';
+            requestButton.disabled = false;
+            requestButton.textContent = 'Request New Match';
+            reportButton.disabled = true;
+            currentSessionId = null;
+          });
+          
+          socket.on('requeued-successfully', () => {
+            log('✅ Successfully re-queued. Waiting for a new match.', 'event');
+            reportButton.disabled = true;
+            currentSessionId = null;
           });
         });
       }
 
-      button.addEventListener("click", () => {
+      requestButton.addEventListener("click", () => {
         if (socket && socket.connected) {
           log("Already connected. Sending request-match...", "info");
           socket.emit("request-match", { playerId, playerName });
         } else {
           connectAndRequest();
         }
+      });
+      
+      reportButton.addEventListener("click", () => {
+        if (!currentSessionId) {
+            log("Cannot report: No active session ID.", "error");
+            return;
+        }
+        log(`Reporting invalid session: ${currentSessionId}`, "info");
+        socket.emit("report-invalid-session", { playerId, playerName, sessionId: currentSessionId });
       });
     }
 

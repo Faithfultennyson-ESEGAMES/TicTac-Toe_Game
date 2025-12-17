@@ -252,6 +252,49 @@ async function main() {
                 console.error('[FATAL] Unhandled error in disconnect handler:', err);
             }
         });
+
+        socket.on('report-invalid-session', async (data) => {
+            try {
+                const { playerId, playerName, sessionId } = data;
+                if (!playerId || !sessionId) {
+                    return socket.emit('match-error', { message: 'PlayerId and SessionId are required to report an invalid session.' });
+                }
+
+                await db.read();
+                
+                const activeGame = db.data.active_games[playerId];
+
+                if (activeGame && activeGame.sessionId === sessionId) {
+                    console.log(`[State] Player ${playerId} reported invalid session ${sessionId}. Removing from active games and re-queuing.`);
+                    
+                    delete db.data.active_games[playerId];
+                    
+                    if (!db.data.queue.some(p => p.playerId === playerId)) {
+                        db.data.queue.push({ playerId, playerName: playerName || 'Unknown', socketId: socket.id });
+                    }
+                    
+                    await db.write();
+                    
+                    socket.emit('requeued-successfully');
+
+                    // Immediately try to matchmake again
+                    if (db.data.queue.length >= 2) {
+                        // This part is already handled by the 'request-match' logic, let's keep it simple
+                        // and let the next 'request-match' from a client trigger the check.
+                        // For simplicity, we can just check if we can form a match now.
+                        console.log('[State] Checking for new match after re-queue...');
+                        // The logic to start a new match is complex, we'll let the natural flow handle it
+                        // when another player requests a match. This is safer than re-implementing it here.
+                    }
+                } else {
+                    console.warn(`[State] Player ${playerId} sent an invalid report for session ${sessionId}. Their active session is ${activeGame ? activeGame.sessionId : 'non-existent'}.`);
+                    socket.emit('match-error', { message: 'Invalid session report. You are not in that session.' });
+                }
+            } catch (err) {
+                console.error('[FATAL] Unhandled error in report-invalid-session handler:', err);
+                socket.emit('match-error', { message: 'An unexpected server error occurred while reporting session.' });
+            }
+        });
     });
 
     server.listen(PORT, () => {

@@ -23,12 +23,12 @@ class GameClient {
     this.endScreenTimer = null;
     this.moveLock = false;
     this.handlersAttached = false;
+    this.placedSymbols = 0;
+    this.selectedSymbolIndex = null; // The index of the piece to be moved
 
     let socketUrl;
     try {
-      // Construct the WebSocket URL from the joinUrl's origin.
       const origin = new URL(this.params.joinUrl).origin;
-      // Replace http with ws for WebSocket connection.
       socketUrl = origin.replace(/^http/, 'ws');
     } catch (e) {
       socketUrl = null;
@@ -141,6 +141,7 @@ class GameClient {
     };
     this.turnDurationSec = session.turnDurationSec || null;
     this.playerSymbol = this.resolvePlayerSymbol(this.session);
+    this.placedSymbols = this.session.board.filter(s => s === this.playerSymbol).length;
     this.persistSession();
 
     this.ui.hideOverlay();
@@ -161,7 +162,6 @@ class GameClient {
     if (!this.session) return;
     this.session.currentTurnPlayerId = currentTurnPlayerId;
     this.session.expiresAt = expiresAt;
-    // keep latest duration if server provides consistent value on session
     const symbol = this.getSymbolForPlayerId(currentTurnPlayerId);
     this.ui.setCurrentTurn(symbol, {});
     this.startTurnTimer(expiresAt);
@@ -173,6 +173,10 @@ class GameClient {
     this.session.board = board;
     this.session.currentTurnPlayerId = currentTurnPlayerId;
     this.moveLock = false;
+    this.placedSymbols = this.session.board.filter(s => s === this.playerSymbol).length;
+    this.selectedSymbolIndex = null; // Reset selection
+    this.ui.setSelectedSymbol(null);
+
     const placedIndex = board.findIndex((cell, idx) => cell && cell !== previousBoard[idx]);
     if (placedIndex >= 0) {
       this.ui.onMovePlaced(board[placedIndex]);
@@ -191,11 +195,9 @@ class GameClient {
     this.stopTurnTimer();
     this.ui.stopTimerWarning();
 
-    // Per spec, client shows a neutral end screen, not win/loss.
     this.ui.showEndScreen();
     this.clearPersistedSession();
 
-    // Start a simple timer on the end screen.
     let seconds = 0;
     this.ui.updateEndScreenTimer(seconds);
     this.endScreenTimer = setInterval(() => {
@@ -260,15 +262,13 @@ class GameClient {
       showSpinner: true,
     });
 
-    // Reconnect socket before fetching state
     await this.socketManager.connect();
 
-    // Now fetch the latest state from the server
     const state = await this.fetchSessionState(cached.sessionId);
     if (state && state.status !== 'ended') {
       this.handleGameFound(state);
       this.playerSymbol = this.resolvePlayerSymbol(state);
-      this.persistSession(); // Re-persist with the latest data
+      this.persistSession();
       this.ui.toast('Successfully rejoined match.');
     } else {
       this.clearPersistedSession();
@@ -290,28 +290,73 @@ class GameClient {
       this.ui.toast('Not your turn.');
       return;
     }
-    if (this.session.board[index]) {
-      this.ui.toast('Cell already taken.');
-      return;
+
+    // Stage 1: Placing the first 3 symbols
+    if (this.placedSymbols < 3) {
+        if (this.session.board[index]) {
+            this.ui.toast('Cell already taken.');
+            return;
+        }
+
+        this.moveLock = true;
+        const movePayload = {
+            sessionId: this.session.sessionId,
+            playerId: this.localPlayer.id,
+            position: index,
+        };
+
+        this.socketManager.emit('make-move', movePayload).catch(err => {
+            this.moveLock = false;
+            this.ui.toast('Move submission failed.');
+        });
+    } else {
+      // Stage 2: Relocating symbols
+        if (this.selectedSymbolIndex === null) {
+            // Step 1: Select a piece to move
+            if (this.session.board[index] !== this.playerSymbol) {
+                this.ui.toast('Select one of your symbols to move.');
+                return;
+            }
+            this.selectedSymbolIndex = index;
+            this.ui.setSelectedSymbol(index);
+            this.ui.toast('Select an empty cell to move to.');
+        } else {
+            // Step 2: Select an empty destination cell
+            if (this.session.board[index] !== null) {
+                 if (index === this.selectedSymbolIndex) { // Allow deselecting
+                    this.selectedSymbolIndex = null;
+                    this.ui.setSelectedSymbol(null);
+                    return;
+                }
+                this.ui.toast('Destination cell must be empty.');
+                return;
+            }
+
+            this.moveLock = true;
+            const relocatePayload = {
+                sessionId: this.session.sessionId,
+                playerId: this.localPlayer.id,
+                from: this.selectedSymbolIndex,
+                to: index,
+            };
+
+            this.socketManager.emit('relocate-move', relocatePayload).catch(err => {
+                this.moveLock = false;
+                this.ui.toast('Relocation failed.');
+            });
+        }
     }
-
-    this.moveLock = true;
-    const movePayload = {
-      sessionId: this.session.sessionId,
-      playerId: this.localPlayer.id,
-      position: index,
-    };
-
-    this.socketManager.makeMove(movePayload).catch(err => {
-      this.moveLock = false;
-      this.ui.toast('Move submission failed.');
-    });
   }
 
   handleMoveError(error = {}) {
     this.moveLock = false;
     const message = error?.message || 'Move was rejected.';
     this.ui.toast(message);
+    // If the error was due to a bad selection, reset the UI state
+    if (this.selectedSymbolIndex !== null) {
+        this.selectedSymbolIndex = null;
+        this.ui.setSelectedSymbol(null);
+    }
   }
 
   resolvePlayerSymbol(session) {
@@ -319,19 +364,6 @@ class GameClient {
     if (players?.X?.id === this.localPlayer.id) return 'X';
     if (players?.O?.id === this.localPlayer.id) return 'O';
     return null;
-  }
-
-  describeMoveError(code) {
-    const map = {
-      invalid_payload: 'Invalid move data.',
-      session_not_found: 'Session not found.',
-      session_not_active: 'Session is not active.',
-      not_player_turn: "It isn't your turn yet.",
-      invalid_position: 'That cell is invalid.',
-      cell_occupied: 'That cell is already taken.',
-      player_not_in_session: 'You are not in this session.',
-    };
-    return map[code] || 'Move was rejected.';
   }
 
   normalizePlayers(players = []) {
@@ -362,8 +394,8 @@ class GameClient {
     }
     const expiry = new Date(turnExpiresAt).getTime();
     const totalDurationSec = this.computeTurnDurationSec(expiry);
-    const cautionThresholdSec = Math.max(1, Math.ceil(totalDurationSec * 0.5)); // yellow
-    const warnThresholdSec = Math.max(1, Math.ceil(totalDurationSec * 0.3)); // red + sound
+    const cautionThresholdSec = Math.max(1, Math.ceil(totalDurationSec * 0.5));
+    const warnThresholdSec = Math.max(1, Math.ceil(totalDurationSec * 0.3));
 
     this.turnTick = setInterval(() => {
       const remaining = Math.max(0, expiry - Date.now());

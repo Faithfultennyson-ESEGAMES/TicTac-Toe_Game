@@ -1,4 +1,3 @@
-
 # Matchmaking Server for ESEGAMES
 
 This Node.js application is the central matchmaking service for the ESEGAMES platform. It manages a player queue, forms matches, and communicates with the `game-server` to create game sessions. It maintains a simple state of the player queue and active games using a local JSON file (`db.json`).
@@ -72,7 +71,7 @@ Clients must use Socket.IO to connect and interact with this server.
 ```javascript
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:3330"); // Your matchmaking server URL
+const socket = io("https://tictac-toematchmaking-service-production.up.railway.app"); // Your matchmaking server URL
 
 const playerDetails = {
     playerId: 'user-12345-abcdef', // A unique, stable identifier
@@ -84,7 +83,7 @@ socket.emit('request-match', playerDetails);
 
 ### 2. Handle Server Responses
 
-Your client must handle three key events.
+Your client must handle the primary server events.
 
 **`match-found`**: The server has found a match and created a game session. The payload contains the necessary information to join.
 
@@ -96,7 +95,7 @@ socket.on('match-found', (data) => {
     //   joinUrl: "http://game-server:5500/session/d2c1ba68-ab40-46b5-9651-b48ed4cb8069/join"
     // }
 
-    // IMPORTANT: Construct the URL for the game client, passing the details as query parameters.
+    // IMPORTANT: Construct the URL for your game client, passing the details.
     const gameClientUrl = new URL('http://localhost:8080/index.html'); // URL to your game client
     gameClientUrl.searchParams.set('joinUrl', data.joinUrl);
     gameClientUrl.searchParams.set('playerId', playerDetails.playerId);
@@ -107,7 +106,7 @@ socket.on('match-found', (data) => {
 });
 ```
 
-**`match-error`**: The server failed to create a game session.
+**`match-error`**: The server failed to create a game session or another error occurred.
 
 ```javascript
 socket.on('match-error', (error) => {
@@ -125,6 +124,36 @@ socket.on('session-ended', (data) => {
     // data = { sessionId: "..." }
 
     // Update the UI to allow the user to start a new match search.
+});
+```
+
+### 3. Handling Invalid Sessions (Client-Side Recovery)
+
+In rare cases, a client may be assigned to a session that is invalid (e.g., the game client fails to connect, or the session is already full or seems to be over). If a client cannot successfully join the game specified in `match-found`, it should report the session as invalid to be re-queued. This prevents the player from being "stuck" in a broken session.
+
+**`report-invalid-session`**: Sent by the client to report a broken session and request to be re-queued.
+
+```javascript
+// Let's say you stored the sessionId from the 'match-found' event
+const currentSessionId = "d2c1ba68-ab40-46b5-9651-b48ed4cb8069";
+
+// If your game client determines this session is bad, report it.
+const reportPayload = {
+    playerId: 'user-12345-abcdef',
+    playerName: 'RizzoTheRat',
+    sessionId: currentSessionId
+};
+
+socket.emit('report-invalid-session', reportPayload);
+```
+
+**`requeued-successfully`**: The server confirms the report was valid and the player is now back in the matchmaking queue.
+
+```javascript
+socket.on('requeued-successfully', () => {
+    console.log('Server confirmed our report. We are back in the queue.');
+    // Update UI to show "Searching for a new match..."
+    // The server will automatically try to find a new match for you.
 });
 ```
 
