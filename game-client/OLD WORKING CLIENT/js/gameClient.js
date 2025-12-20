@@ -1,3 +1,4 @@
+
 import audioManager from "./audioManager.js";
 import UIManager from "./uiManager.js";
 import SocketManager from "./socketManager.js";
@@ -89,11 +90,6 @@ class GameClient {
         message: `Could not connect to the game server (${reason}). Please check the link and try again.`,
         showSpinner: false,
       });
-      // Broadcast connection failure event
-      window.broadcastEvent?.('CONNECTION_FAILED', {
-          reason: reason,
-          source: 'init',
-      });
     }
   }
 
@@ -124,11 +120,6 @@ class GameClient {
         title: "Could Not Join",
         message: payload.message || "An unknown error occurred.",
         showSpinner: false,
-    });
-    // Broadcast invalid session event
-    window.broadcastEvent?.('INVALID_SESSION', {
-        sessionId: this.params.sessionId,
-        reason: payload.message,
     });
   }
 
@@ -262,10 +253,6 @@ class GameClient {
             message: 'No previous session data found. Please use a valid game link to join.',
             showSpinner: false,
         });
-        window.broadcastEvent?.('INVALID_SESSION', {
-            sessionId: null,
-            reason: 'No session data found in local storage.',
-        });
         return;
     }
 
@@ -275,37 +262,21 @@ class GameClient {
       showSpinner: true,
     });
 
-    try {
-        await this.socketManager.connect();
-        const state = await this.fetchSessionState(cached.sessionId);
-        if (state && state.status !== 'ended') {
-            this.handleGameFound(state);
-            this.playerSymbol = this.resolvePlayerSymbol(state);
-            this.persistSession();
-            this.ui.toast('Successfully rejoined match.');
-        } else {
-            this.clearPersistedSession();
-            this.ui.showOverlay({
-                title: 'Session Unavailable',
-                message: 'The previous session has ended or could not be found.',
-                showSpinner: false,
-            });
-            window.broadcastEvent?.('INVALID_SESSION', {
-                sessionId: cached.sessionId,
-                reason: 'Session has ended or could not be found.',
-            });
-        }
-    } catch (error) {
-        const reason = error?.message || 'Unknown error during rejoin';
-        this.ui.showOverlay({
-            title: 'Rejoin Failed',
-            message: `Could not reconnect to the game server (${reason}).`,
-            showSpinner: false,
-        });
-        window.broadcastEvent?.('CONNECTION_FAILED', {
-            reason: reason,
-            source: 'rejoin',
-        });
+    await this.socketManager.connect();
+
+    const state = await this.fetchSessionState(cached.sessionId);
+    if (state && state.status !== 'ended') {
+      this.handleGameFound(state);
+      this.playerSymbol = this.resolvePlayerSymbol(state);
+      this.persistSession();
+      this.ui.toast('Successfully rejoined match.');
+    } else {
+      this.clearPersistedSession();
+      this.ui.showOverlay({
+        title: 'Session Unavailable',
+        message: 'The previous session has ended or could not be found.',
+        showSpinner: false,
+      });
     }
   }
 
