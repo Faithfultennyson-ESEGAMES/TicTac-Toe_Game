@@ -10,8 +10,8 @@
   --color-success: #4ad07d;
   --color-text: #f7f9fc;
   --color-text-muted: #9aa6bf;
-  --color-accent-yellow: #ffb347;
-  --color-accent-blue: #6c9cff;
+  --color-player-x: #f4d35e;
+  --color-player-o: #ff8bd8;
   --shadow-elevation: 0 16px 32px rgba(12, 16, 24, 0.45);
   --board-size: min(90vw, 420px);
   --transition-fast: 150ms ease;
@@ -98,22 +98,20 @@ button:disabled {
 .player-symbol {
   font-size: 22px;
   font-weight: 700;
-}
-
-#player-x .player-symbol {
-    color: var(--color-text);
-}
-
-#player-o .player-symbol {
-    color: var(--color-text);
+  color: var(--color-primary-light);
 }
 
 .player-name {
   font-size: 16px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+#player-x .player-name {
+  color: var(--color-player-x);
+}
+
+#player-o .player-name {
+  color: var(--color-player-o);
 }
 
 .player-stake {
@@ -145,7 +143,7 @@ button:disabled {
 }
 
 .timer.warning {
-  color: var(--color-accent-yellow);
+  color: #ffb347;
   animation: pulse 1s infinite;
 }
 
@@ -169,7 +167,7 @@ button:disabled {
   border-radius: 24px;
   overflow: hidden;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border: 3px solid var(--color-border);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
 
@@ -177,7 +175,7 @@ button:disabled {
   position: relative;
   width: 100%;
   height: 100%;
-  border: 1px solid var(--color-border);
+  border: 2px solid rgba(255, 255, 255, 0.14);
   font-size: 52px;
   font-weight: 800;
   display: flex;
@@ -188,17 +186,12 @@ button:disabled {
 }
 
 .board-cell[data-symbol='O'] {
-  color: var(--color-accent-yellow);
+  color: #ff8bd8;
 }
-
-.board-cell[data-symbol='X'] {
-  color: var(--color-accent-blue);
-}
-
 
 .board-cell:active:not(:disabled) {
   transform: scale(0.96);
-  background: rgba(255, 255, 255,.06);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .board-cell.winning {
@@ -239,8 +232,8 @@ button:disabled {
 }
 
 .status-indicator.connecting {
-  background: var(--color-accent-yellow);
-  box-shadow: 0 0 8px var(--color-accent-yellow);
+  background: #ffb347;
+  box-shadow: 0 0 8px #ffb347;
 }
 
 .status-indicator.disconnected {
@@ -248,7 +241,8 @@ button:disabled {
   box-shadow: 0 0 8px var(--color-danger);
 }
 
-.overlay {
+.overlay,
+.modal {
   position: fixed;
   inset: 0;
   display: flex;
@@ -260,12 +254,40 @@ button:disabled {
   transition: opacity var(--transition-slow);
 }
 
-.overlay.hidden {
+.overlay.banner {
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px 12px;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.overlay.banner .overlay-content {
+  width: min(92vw, 360px);
+  padding: 12px 16px;
+  border-radius: 14px;
+  gap: 6px;
+}
+
+.overlay.banner .overlay-content h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.overlay.banner .overlay-content p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.overlay.hidden,
+.modal.hidden {
   opacity: 0;
   pointer-events: none;
 }
 
-.overlay-content {
+.overlay-content,
+.modal-content {
   padding: 24px;
   border-radius: 20px;
   background: var(--color-surface);
@@ -284,34 +306,6 @@ button:disabled {
   border: 4px solid rgba(255, 255, 255, 0.1);
   border-top-color: var(--color-primary);
   animation: spin 0.9s linear infinite;
-}
-
-.modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(4, 7, 12, 0.85);
-  backdrop-filter: blur(8px);
-  z-index: 50;
-  transition: opacity var(--transition-slow);
-}
-
-.modal.hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.modal-content {
-  padding: 24px;
-  border-radius: 20px;
-  background: var(--color-surface);
-  box-shadow: var(--shadow-elevation);
-  width: min(90vw, 420px);
-  text-align: center;
-  display: grid;
-  gap: 16px;
 }
 
 .hidden {

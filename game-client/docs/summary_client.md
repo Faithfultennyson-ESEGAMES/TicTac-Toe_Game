@@ -9,28 +9,27 @@
     *   `animations.css`: Keyframe animations for UI effects.
 *   **JavaScript Loading:**
     1.  **Main Logic:** The application's entry point is `js/main.js`, loaded as a `type="module"`.
-    2.  **Dependencies:** Key libraries like `socket.io` are bundled and managed as ES6 module imports.
+    2.  **Dependencies:** Socket.IO is loaded from a CDN at runtime (via an inline script in `index.html`), then the ES module code starts.
 *   **Code Organization (ES6 Modules):**
     *   `js/main.js`: Initializes the entire application after the DOM is loaded. It creates instances of the managers and the main game client. It also defines the global `broadcastEvent` function for parent communication.
     *   `js/gameClient.js`: The central orchestrator. It manages the game state, handles events from the UI and the socket, and directs the flow of the game.
     *   `js/socketManager.js`: Encapsulates all `socket.io` communication. It handles connecting, sending messages, and receiving events from the server.
     *   `js/uiManager.js`: Manages all DOM manipulation. It updates the board, player info, timers, and shows/hides overlays and modals. It does not contain any game logic itself.
     *   `js/audioManager.js`: Handles playing sound effects for game events.
-    *   `js/urlParser.js`: A utility to parse query parameters from the URL, expecting `camelCase` keys.
+    *   `js/urlParser.js`: A utility to parse query parameters from the URL, accepting both `camelCase`  keys.
 
 #### 2. How to Play a Game
 
-To play a game, you need to construct a URL with the following `camelCase` query parameters:
+To play a game, you need to construct a URL with the following query parameters ( `camelCase`):
 
-*   `joinUrl`: The full WebSocket URL of the game server (e.g., `ws://localhost:3000`).
-*   `sessionId`: The ID of the game session to join.
+*   `joinUrl`: The join URL that includes the session path (e.g., `http://host/session/<id>` or `ws://host/session/<id>`). The client extracts the `sessionId` from this URL.
 *   `playerId`: Your unique player ID.
 *   `playerName`: Your display name.
 
 **Example URL:**
 
 ```
-http://<your-client-url>/index.html?joinUrl=ws://<your-server-url>&sessionId=some-session-id&playerId=player1&playerName=PlayerOne
+http://<your-client-url>/index.html?joinurl=http://<your-server-url>/session/some-session-id&playerId=player1&playerName=PlayerOne
 ```
 
 When you open this URL, the client will automatically attempt to connect to the server and join the specified game session.
@@ -46,13 +45,14 @@ The UI is a single page with different states managed by showing/hiding elements
     *   `#turn-indicator`: Shows whose turn it is and a countdown timer.
     *   `#game-board`: The 3x3 grid of clickable buttons.
     *   `#overlay`: A full-screen overlay with a spinner and text, used for loading states (`Connecting...`, `Waiting for match...`, etc.).
-    *   `#result-modal`: A dialog that appears at the end of the game to show a neutral end screen.
+    *   `#result-modal`: A dialog that can be used for end-of-game messaging (not shown in the current flow).
+    *   **Player names:** Color-coded by symbol and capped at 12 characters (long names are truncated with `..`).
 *   **UI Flow:**
     1.  **Initial Load:** The page loads, and the `#overlay` is immediately shown with a "Connecting..." message.
     2.  **Joining:** Once connected, the overlay text changes to "Joining Game Session...".
     3.  **Game Start:** When the server emits `game-found`, the overlay is hidden, and the main game board and player info are displayed.
     4.  **Gameplay:** The UI updates in real-time to reflect the board state, current turn, and timer.
-    5.  **Game End:** When the server emits `game-ended`, a neutral end screen is displayed.
+    5.  **Game End:** When the server emits `game-ended`, the client waits ~3 seconds and then shows a top banner overlay (no dimming) while the board remains visible.
 
 #### 4. WebSocket connection lifecycle
 
@@ -88,11 +88,12 @@ The UI is a single page with different states managed by showing/hiding elements
 #### 7. What happens on game end
 
 *   The `gameClient.js` listens for the `game-ended` event from the server.
-*   It then calls `uiManager.showEndScreen()` to display a neutral end screen, and the session is cleared from local storage.
+*   It stops timers, clears the session, and waits ~3 seconds before showing a small banner at the top (the board stays visible).
+*   The final move is expected to be rendered by the preceding `move-applied` event.
 
 #### 8. Bugs, inconsistencies, or risky assumptions
 
-1.  **CDN Dependency:** The initial version loaded Socket.IO from a CDN. While now bundled, this highlights a sensitivity to external dependencies if they are ever reintroduced.
+1.  **CDN Dependency:** Socket.IO is loaded from a CDN at runtime; connectivity issues or blocked CDNs will prevent the client from connecting.
 
 #### 9. WebView & iframe Integration (`postMessage` API)
 
@@ -136,5 +137,9 @@ window.addEventListener('message', (event) => {
     *   **Trigger**: Fired when a player attempts to join or rejoin a session that is invalid, has ended, or does not exist.
     *   **Payload**: ` { sessionId: string | null, reason: string } `
 *   **`CONNECTION_FAILED`**:
-    *   **Trigger**: Fired when the client fails to establish or re-establish a WebSocket connection with the game server after multiple retries.
+    *   **Trigger**: Fired when the client fails to establish or re-establish a WebSocket connection (initial connect, rejoin, or reconnect failure).
     *   **Payload**: ` { reason: string, source: 'init' | 'rejoin' } `
+
+#### 10. Local docs & test pages
+
+*   `docs/webview.md`: Detailed postMessage integration guide for parent apps.
