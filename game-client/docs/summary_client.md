@@ -97,49 +97,63 @@ The UI is a single page with different states managed by showing/hiding elements
 
 #### 9. WebView & iframe Integration (`postMessage` API)
 
-The game client is designed to be embedded into a parent application (e.g., a React or mobile app) using a `WebView` or an `iframe`. To facilitate communication from the game back to the parent, the client dispatches events using the `window.parent.postMessage()` API.
+This client can be embedded in a parent application (WebView or iframe) and will send events to the parent using the postMessage API. The client exposes a global helper in `js/main.js`:
 
-A global function `broadcastEvent(type, payload)` is available in `js/main.js` to standardize this communication.
+- `window.broadcastEvent(type, payload)`
 
-**Listening for Events in the Parent App:**
+When called, it posts `{ type, payload }` to `window.parent` (or to `window` if not embedded).
 
-A developer embedding the game can listen for these messages on the `window` object.
+## Parent-side listener example
 
 ```javascript
-// Example: How a parent application can listen for game events
 window.addEventListener('message', (event) => {
-  // Recommended: Check the event origin for security
+  // Recommended: validate the sender
   // if (event.origin !== 'http://your-game-client-domain.com') {
   //   return;
   // }
 
-  const { type, payload } = event.data;
+  const { type, payload } = event.data || {};
 
   switch (type) {
     case 'INVALID_SESSION':
       console.log('Game session is invalid:', payload);
-      // Example: Close the WebView or show an error to the user
       // payload: { sessionId: string | null, reason: string }
       break;
 
     case 'CONNECTION_FAILED':
       console.log('Failed to connect to the game server:', payload);
-      // Example: Display a native error message
       // payload: { reason: string, source: 'init' | 'rejoin' }
       break;
   }
 });
 ```
 
-**Dispatched Events:**
+## Dispatched events
 
-*   **`INVALID_SESSION`**:
-    *   **Trigger**: Fired when a player attempts to join or rejoin a session that is invalid, has ended, or does not exist.
-    *   **Payload**: ` { sessionId: string | null, reason: string } `
-*   **`CONNECTION_FAILED`**:
-    *   **Trigger**: Fired when the client fails to establish or re-establish a WebSocket connection (initial connect, rejoin, or reconnect failure).
-    *   **Payload**: ` { reason: string, source: 'init' | 'rejoin' } `
+### INVALID_SESSION
 
-#### 10. Local docs & test pages
+- Triggered when a player attempts to join or rejoin a session that is invalid, has ended, or cannot be found.
+- Payload: `{ sessionId: string | null, reason: string }`
 
-*   `docs/webview.md`: Detailed postMessage integration guide for parent apps.
+Common reasons:
+- `invalid_link` (missing joinUrl/playerId/playerName)
+- `join_error` (server rejected join)
+- `session_ended`
+- `missing_session` (no stored session for rejoin)
+- `session_unavailable` (rejoin fetch failed or session ended)
+
+### CONNECTION_FAILED
+
+- Triggered when the client fails to establish or re-establish a WebSocket connection (initial connect, rejoin, or reconnect failure).
+- Payload: `{ reason: string, source: 'init' | 'rejoin' }`
+
+Common reasons:
+- `Unknown error` (initial connect failed without specific message)
+- `Connection timeout`
+- `reconnect_failed`
+- Other socket error messages passed through as `reason`
+
+## Notes
+
+- Messages are posted with `targetOrigin = '*'`. For production apps, check `event.origin` before handling.
+- If the game is not embedded, messages are posted to the same window.

@@ -12,6 +12,7 @@
     .player-header { font-weight: bold; font-size: 1.2em; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 10px; }
     button { background-color: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; margin-bottom: 10px; width: 100%; font-weight: 700; }
     button:disabled { background-color: #aaa; cursor: not-allowed; }
+    select { width: 100%; padding: 8px 10px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #ccc; }
     .log-container { height: 220px; overflow-y: auto; border: 1px solid #e0e0e0; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: #fafafa; border-radius: 6px; }
     .log-entry { padding: 4px; border-bottom: 1px dotted #ccc; }
     .log-entry.event { color: #0056b3; }
@@ -25,6 +26,13 @@
       font-size: 12px; color:#444; background:#fff; padding:10px 12px; border-radius:8px;
       max-width: 900px; line-height:1.4; border-left: 3px solid #007bff; margin-bottom: 14px;
     }
+    .queue-status {
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 12px;
+      max-width: 900px; width: 100%; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+    }
+    .queue-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+    .queue-block { background: #f7f7f7; border-radius: 6px; padding: 8px 10px; min-width: 180px; }
+    .queue-title { font-weight: 700; margin-bottom: 6px; }
   </style>
 </head>
 <body>
@@ -38,6 +46,11 @@
     Best: open it from any http(s) host, even locally.
   </div>
 
+  <div id="queueStatus" class="queue-status">
+    <div class="queue-title">Queue Status</div>
+    <div class="queue-grid" id="queueGrid"></div>
+  </div>
+
   <div id="players-container"></div>
 
   <!-- Local first (if you ever bundle it), CDN fallback below -->
@@ -45,12 +58,30 @@
     function ensureSocketIoLoaded(cb) {
       if (typeof io !== "undefined") return cb();
 
-      const s = document.createElement("script");
-      s.src = "https://cdn.socket.io/4.8.1/socket.io.min.js";
-      s.crossOrigin = "anonymous";
-      s.onload = cb;
-      s.onerror = () => alert("Failed to load Socket.IO client.");
-      document.head.appendChild(s);
+      const sources = [
+        "./socket.io.min.js",
+        "../node_modules/socket.io/client-dist/socket.io.min.js",
+        "https://cdn.socket.io/4.8.1/socket.io.min.js",
+        "https://unpkg.com/socket.io-client@4.8.1/dist/socket.io.min.js"
+      ];
+
+      const tryLoad = (index) => {
+        if (index >= sources.length) {
+          alert("Failed to load Socket.IO client. Check network/CDN access.");
+          return;
+        }
+        const s = document.createElement("script");
+        s.src = sources[index];
+        s.crossOrigin = "anonymous";
+        s.onload = cb;
+        s.onerror = () => {
+          s.remove();
+          tryLoad(index + 1);
+        };
+        document.head.appendChild(s);
+      };
+
+      tryLoad(0);
     }
   </script>
 
@@ -58,7 +89,7 @@
     /*************************
      * CONFIG (fixed URL)
      *************************/
-    const RAW_SERVER_URL = "https://94c4d018290c.ngrok-free.app";
+    const RAW_SERVER_URL = "https://surgical-peevishly-danyell.ngrok-free.dev";
 
     // If page is https, always use wss/https to avoid mixed content auto-disconnects
     const MATCHMAKING_SERVER_URL =
@@ -67,6 +98,43 @@
     document.getElementById("serverLabel").textContent = MATCHMAKING_SERVER_URL;
 
     const playersContainer = document.getElementById('players-container');
+    const queueGrid = document.getElementById('queueGrid');
+
+    let currentQueueStatus = null;
+    const modeUpdaters = new Set();
+
+    function registerModeUpdater(fn) {
+      modeUpdaters.add(fn);
+    }
+
+    function refreshModeLabels() {
+      modeUpdaters.forEach((fn) => fn());
+    }
+
+    function updateQueueStatus(data) {
+      currentQueueStatus = data || null;
+      refreshModeLabels();
+      if (!queueGrid) return;
+      const dice = data?.dice || {};
+      const tictactoe = data?.tictactoe || {};
+      queueGrid.innerHTML = '';
+
+      const diceBlock = document.createElement('div');
+      diceBlock.className = 'queue-block';
+      diceBlock.innerHTML = `<div class="queue-title">Dice</div>
+        <div>2 players: ${(dice[2] || 0)}/2</div>
+        <div>4 players: ${(dice[4] || 0)}/4</div>
+        <div>6 players: ${(dice[6] || 0)}/6</div>
+        <div>15 players: ${(dice[15] || 0)}/15</div>`;
+
+      const tttBlock = document.createElement('div');
+      tttBlock.className = 'queue-block';
+      tttBlock.innerHTML = `<div class="queue-title">TicTacToe</div>
+        <div>2 players: ${(tictactoe[2] || 0)}/2</div>`;
+
+      queueGrid.appendChild(diceBlock);
+      queueGrid.appendChild(tttBlock);
+    }
 
     function createPlayerInstance(playerId, playerName) {
       const card = document.createElement('div');
@@ -76,10 +144,25 @@
       header.className = 'player-header';
       header.textContent = `Player: ${playerName} (${playerId})`;
 
+      const gameSelect = document.createElement('select');
+      gameSelect.id = `game-${playerId}`;
+      gameSelect.innerHTML = `
+        <option value="dice">Dice</option>
+        <option value="tictactoe">TicTacToe</option>
+      `;
+
+      const modeSelect = document.createElement('select');
+      modeSelect.id = `mode-${playerId}`;
+
       const requestButton = document.createElement('button');
       requestButton.id = `btn-${playerId}`;
       requestButton.textContent = 'Request Match';
-      
+
+      const cancelButton = document.createElement('button');
+      cancelButton.id = `btn-cancel-${playerId}`;
+      cancelButton.textContent = 'Cancel Queue';
+      cancelButton.disabled = true;
+
       const reportButton = document.createElement('button');
       reportButton.id = `btn-report-${playerId}`;
       reportButton.textContent = 'Report Invalid Session';
@@ -90,13 +173,46 @@
       logContainer.className = 'log-container';
 
       card.appendChild(header);
+      card.appendChild(gameSelect);
+      card.appendChild(modeSelect);
       card.appendChild(requestButton);
+      card.appendChild(cancelButton);
       card.appendChild(reportButton);
       card.appendChild(logContainer);
       playersContainer.appendChild(card);
 
       let socket = null;
       let currentSessionId = null;
+      let queued = false;
+
+      function setQueued(value) {
+        queued = value;
+        cancelButton.disabled = !queued;
+      }
+
+      function updateModeOptions() {
+        const gameType = gameSelect.value;
+        const status = currentQueueStatus || {};
+        modeSelect.innerHTML = '';
+        if (gameType === 'tictactoe') {
+          const count = status?.tictactoe?.[2] || 0;
+          const option = document.createElement('option');
+          option.value = '2';
+          option.textContent = `2 players (${count}/2)`;
+          modeSelect.appendChild(option);
+          modeSelect.disabled = true;
+        } else {
+          const modes = [2, 4, 6, 15];
+          modes.forEach((mode) => {
+            const count = status?.dice?.[mode] || 0;
+            const option = document.createElement('option');
+            option.value = String(mode);
+            option.textContent = `${mode} players (${count}/${mode})`;
+            modeSelect.appendChild(option);
+          });
+          modeSelect.disabled = false;
+        }
+      }
 
       function log(message, type = 'info') {
         const entry = document.createElement('div');
@@ -105,6 +221,16 @@
         logContainer.appendChild(entry);
         logContainer.scrollTop = logContainer.scrollHeight;
         console.log(`[${playerId}] ${message}`);
+      }
+
+      function emitRequestMatch() {
+        socket.emit('request-match', {
+          playerId,
+          playerName,
+          gameType: gameSelect.value,
+          mode: parseInt(modeSelect.value, 10)
+        });
+        setQueued(true);
       }
 
       function connectAndRequest() {
@@ -129,57 +255,81 @@
           });
 
           socket.on("connect", () => {
-            log(`✅ Connected! socketId=${socket.id}`, "event");
+            log(`Connected. socketId=${socket.id}`, "event");
             log(`Transport: ${socket.io.engine.transport.name}`, "info");
             requestButton.disabled = false;
             requestButton.textContent = 'Request Match';
-            socket.emit("request-match", { playerId, playerName });
+            emitRequestMatch();
           });
 
           socket.io.on("upgrade", (transport) => {
-            log(`⬆️ Upgraded to transport: ${transport.name}`, "info");
+            log(`Upgraded to transport: ${transport.name}`, "info");
           });
 
           socket.on("disconnect", (reason) => {
-            log(`❌ Disconnected: ${reason}`, "error");
+            log(`Disconnected: ${reason}`, "error");
             log("If this happens instantly, it's usually CORS/Origin or mixed-content.", "error");
             requestButton.textContent = 'Request Match (Reconnect)';
             requestButton.disabled = false;
             reportButton.disabled = true;
             currentSessionId = null;
+            setQueued(false);
           });
 
           socket.on("connect_error", (err) => {
-            log(`❌ Connection Error: ${err.message}`, "error");
+            log(`Connection Error: ${err.message}`, "error");
             log("Tip: confirm server allows your Origin (iframe/webview/file://).", "error");
             requestButton.disabled = false;
             requestButton.textContent = 'Request Match';
           });
 
+          socket.on("queue-status", (data) => {
+            updateQueueStatus(data);
+          });
+
+          socket.on("queue-cancelled", (data) => {
+            log(`Queue cancelled for ${data.playerId}`, "event");
+            setQueued(false);
+          });
+
           socket.on("match-found", (data) => {
-            log(`🎉 MATCH FOUND! Session ID: ${data.sessionId}`, "event");
+            log(`MATCH FOUND! Session ID: ${data.sessionId}`, "event");
             log(`Join URL: ${data.joinUrl}`, "info");
+            log(`Game: ${data.gameType} mode ${data.mode}`, "info");
             log(`----------------------------------`, "info");
             currentSessionId = data.sessionId;
             reportButton.disabled = false;
+            setQueued(false);
           });
 
           socket.on("match-error", (data) => {
-            log(`⚠️ Error from server: ${data.message}`, "error");
+            const extra = data.cooldownUntil ? ` (cooldown until ${new Date(data.cooldownUntil).toLocaleTimeString()})` : '';
+            log(`Error from server: ${data.message}${extra}`, "error");
+            if (data.cooldownUntil) {
+              requestButton.disabled = true;
+              requestButton.textContent = 'Cooldown active';
+              setTimeout(() => {
+                requestButton.disabled = false;
+                requestButton.textContent = 'Request Match';
+              }, Math.max(0, data.cooldownUntil - Date.now()));
+            }
           });
 
           socket.on('session-ended', (data) => {
-            log(`↩️ Session ${data.sessionId} has ended. You can request a new match.`, "event");
+            log(`Session ${data.sessionId} has ended. You can request a new match.`, "event");
             requestButton.disabled = false;
             requestButton.textContent = 'Request New Match';
             reportButton.disabled = true;
             currentSessionId = null;
+            setQueued(false);
           });
           
-          socket.on('requeued-successfully', () => {
-            log('✅ Successfully re-queued. Waiting for a new match.', 'event');
+          socket.on('session-cleared', (data) => {
+            const label = data?.sessionId ? ` (${data.sessionId})` : '';
+            log(`Session cleared${label}. Request a new match when ready.`, 'event');
             reportButton.disabled = true;
             currentSessionId = null;
+            setQueued(false);
           });
         });
       }
@@ -187,10 +337,20 @@
       requestButton.addEventListener("click", () => {
         if (socket && socket.connected) {
           log("Already connected. Sending request-match...", "info");
-          socket.emit("request-match", { playerId, playerName });
+          emitRequestMatch();
         } else {
           connectAndRequest();
         }
+      });
+
+      cancelButton.addEventListener("click", () => {
+        if (!socket || !socket.connected) {
+          log("Cannot cancel: not connected.", "error");
+          return;
+        }
+        log("Cancelling queue...", "info");
+        socket.emit("cancel-match", { playerId });
+        setQueued(false);
       });
       
       reportButton.addEventListener("click", () => {
@@ -201,6 +361,10 @@
         log(`Reporting invalid session: ${currentSessionId}`, "info");
         socket.emit("report-invalid-session", { playerId, playerName, sessionId: currentSessionId });
       });
+
+      gameSelect.addEventListener('change', updateModeOptions);
+      registerModeUpdater(updateModeOptions);
+      updateModeOptions();
     }
 
     createPlayerInstance("player-1", "Alice");
