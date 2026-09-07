@@ -1,0 +1,21 @@
+{
+  "name": "game-server",
+  "version": "1.0.0",
+  "description": "Real-time game server for ESEGAMES",
+  "main": "index.js",
+  "scripts": {
+    "build:client": "esbuild public/js/main.js --bundle --format=iife --target=chrome61,safari11 --outfile=public/js/app.bundle.js",
+    "start": "npm run build:client && node index.js",
+    "dev": "npm run build:client && nodemon index.js"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "dotenv": "^16.3.1",
+    "esbuild": "^0.25.9",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

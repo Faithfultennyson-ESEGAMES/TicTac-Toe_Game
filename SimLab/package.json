@@ -1,0 +1,16 @@
+{
+  "name": "tictac-simlab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local test harness for the Tic Tac Toe game server/client.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "socket.io-client": "^4.8.1"
+  }
+}

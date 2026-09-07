@@ -1,0 +1,25 @@
+/*
+ * Responsiveness is handled by uniform scaling (see js/viewportScaler.js), not
+ * by media-query reflow. The game is authored once at its design size and
+ * scaled to fit any frame, so the portrait layout is NEVER split or
+ * rearranged — on a wide phone, a tall phone, a folded Z Fold cover screen or
+ * a large desktop it is always the same design, just a different scale.
+ *
+ * The previous @media (max-width) tweaks and the landscape "board | info"
+ * split were intentionally removed because they fought the scaler and produced
+ * the squashed / split layout we are fixing.
+ *
+ * Keep genuinely device-specific, non-layout concerns (e.g. safe-area insets)
+ * here if needed.
+ */
+
+/* Respect iOS notch / safe areas without changing the design. */
+@supports (padding: env(safe-area-inset-top)) {
+  body {
+    padding:
+      env(safe-area-inset-top)
+      env(safe-area-inset-right)
+      env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+}

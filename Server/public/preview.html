@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Tic Tac Toe — Local Preview (no server)</title>
+  <!--
+    STANDALONE PREVIEW / TEST HARNESS.
+    - Open this file directly in a browser (double-click). No server needed.
+    - It does NOT touch the real client logic (js/*.js are untouched).
+    - It reuses the REAL css and the REAL sound files so the look and the
+      audio match production. The tiny inline script below is a classic
+      (non-module) script and uses <audio> elements instead of fetch()+decode,
+      because file:// blocks ES modules and fetch — otherwise the audio design
+      (files, volumes, click synth, loop, mute) mirrors js/audioManager.js.
+    Use it to see the scaling at any window size and to hear every sound.
+  -->
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/mobile.css" />
+  <link rel="stylesheet" href="css/animations.css" />
+  <style>
+    /* Preview-only test panel — not part of the game design. */
+    .preview-panel {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px;
+      max-width: 190px;
+      background: rgba(10, 14, 20, 0.92);
+      border: 1px solid #2c3446;
+      border-radius: 12px;
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      color: #f7f9fc;
+      font-size: 12px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.5);
+    }
+    .preview-panel h3 { margin: 0 0 2px; font-size: 12px; letter-spacing: .04em; color: #9aa6bf; text-transform: uppercase; }
+    .preview-panel button {
+      font: inherit; cursor: pointer; color: #f7f9fc;
+      background: #1f2532; border: 1px solid #2c3446; border-radius: 8px;
+      padding: 6px 8px; text-align: left;
+    }
+    .preview-panel button:hover { background: #2a3242; }
+    .preview-panel .row { display: flex; gap: 6px; }
+    .preview-panel .row button { flex: 1; }
+    .preview-panel .note { color: #6f7a91; font-size: 11px; line-height: 1.35; }
+    .preview-panel .scale-readout { color: #4ad07d; font-variant-numeric: tabular-nums; }
+    .preview-toggle {
+      position: fixed; top: 8px; left: 8px; z-index: 201;
+      display: none; padding: 6px 10px; border-radius: 8px;
+      background: rgba(10,14,20,0.92); border: 1px solid #2c3446; color: #f7f9fc;
+      font-family: 'Inter','Segoe UI',sans-serif; font-size: 12px; cursor: pointer;
+    }
+    .preview-panel.collapsed { display: none; }
+    .preview-panel.collapsed + .preview-toggle { display: block; }
+  </style>
+</head>
+<body>
+  <div id="viewport-stage" class="viewport-stage">
+  <div id="game-container" class="game-container">
+    <header id="player-info" class="player-info">
+      <div class="player-card active" id="player-x">
+        <span class="player-symbol">X</span>
+        <span class="player-name" id="player-x-name">Alice</span>
+        <span class="player-stake" id="player-x-stake">100 credits</span>
+      </div>
+      <div class="turn-indicator" id="turn-indicator">
+        <span id="turn-text">X turn</span>
+        <div class="timer" id="turn-timer">0:12</div>
+      </div>
+      <div class="player-card" id="player-o">
+        <span class="player-symbol">O</span>
+        <span class="player-name" id="player-o-name">Bob</span>
+        <span class="player-stake" id="player-o-stake">100 credits</span>
+      </div>
+    </header>
+
+    <main id="board-wrapper" class="board-wrapper">
+      <div id="game-board" class="game-board" role="grid" aria-label="Tic Tac Toe board">
+        <button class="board-cell" data-index="0" role="gridcell"></button>
+        <button class="board-cell" data-index="1" role="gridcell"></button>
+        <button class="board-cell" data-index="2" role="gridcell"></button>
+        <button class="board-cell" data-index="3" role="gridcell"></button>
+        <button class="board-cell" data-index="4" role="gridcell"></button>
+        <button class="board-cell" data-index="5" role="gridcell"></button>
+        <button class="board-cell" data-index="6" role="gridcell"></button>
+        <button class="board-cell" data-index="7" role="gridcell"></button>
+        <button class="board-cell" data-index="8" role="gridcell"></button>
+      </div>
+    </main>
+
+    <footer class="controls">
+      <div id="connection-status" class="connection-status">
+        <span id="status-indicator" class="status-indicator connected"></span>
+        <span id="status-text">Connected (preview)</span>
+      </div>
+      <button id="mute-btn" class="mute-btn" type="button" aria-label="Mute sound" aria-pressed="false">
+        <img id="mute-icon" class="mute-icon" src="assets/icons/speaker_on.svg" alt="" draggable="false" />
+      </button>
+    </footer>
+  </div>
+  </div>
+
+  <!-- Preview-only controls -->
+  <div class="preview-panel" id="preview-panel">
+    <h3>Preview controls</h3>
+    <div class="note">Tap the board to place X/O. Resize the window to test scaling.</div>
+    <div class="scale-readout" id="scale-readout">scale: —</div>
+    <div class="row">
+      <button data-sound="xPlace">X place</button>
+      <button data-sound="oPlace">O place</button>
+    </div>
+    <div class="row">
+      <button data-sound="gameWon">Win</button>
+      <button data-sound="gameLost">Lose</button>
+    </div>
+    <button id="btn-timer">▶ Timer warning</button>
+    <button id="btn-music">▶ Toggle BG music</button>
+    <button id="btn-reset">↺ Reset board</button>
+    <div class="note">BG music is a silent placeholder until you add a real bg_music.mp3.</div>
+    <button id="btn-collapse">Hide panel</button>
+  </div>
+  <button class="preview-toggle" id="preview-toggle">Show preview panel</button>
+
+  <script>
+  // ---- Self-contained preview logic (classic script, works from file://) ----
+  (function () {
+    'use strict';
+
+    /* ---------------- Uniform scale-to-fit (mirrors viewportScaler.js) ------ */
+    var container = document.getElementById('game-container');
+    var stage = document.getElementById('viewport-stage');
+    var readout = document.getElementById('scale-readout');
+    var MARGIN = 8;
+    var frame = null;
+
+    function measure() {
+      container.style.transform = 'none';
+      var dw = container.offsetWidth, dh = container.offsetHeight;
+      var vw = stage ? stage.clientWidth : window.innerWidth;
+      var vh = stage ? stage.clientHeight : window.innerHeight;
+      if (!vw || !vh) { vw = window.innerWidth; vh = window.innerHeight; }
+      if (!dw || !dh) return;
+      var scale = Math.min((vw - MARGIN * 2) / dw, (vh - MARGIN * 2) / dh);
+      var safe = Math.max(scale, 0.2);
+      container.style.transform = 'scale(' + safe + ')';
+      if (readout) readout.textContent = 'scale: ' + safe.toFixed(3);
+    }
+    function schedule() { if (frame) cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); }
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', schedule);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', schedule);
+      window.visualViewport.addEventListener('scroll', schedule);
+    }
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(schedule).observe(container);
+
+    /* ---------------- Audio (real files, mirrors audioManager.js) ---------- */
+    var VOLUMES = { bgMusic: 0.18, xPlace: 0.9, oPlace: 0.9, gameWon: 0.9, gameLost: 0.9, timerWarning: 0.8 };
+    var LOOPING = { bgMusic: true, timerWarning: true };
+    var FILES = {
+      bgMusic: 'assets/sounds/bg_music.mp3',
+      xPlace: 'assets/sounds/x_place.mp3',
+      oPlace: 'assets/sounds/o_place.mp3',
+      timerWarning: 'assets/sounds/timer_warning.mp3',
+      gameWon: 'assets/sounds/GameWon.mp3',
+      gameLost: 'assets/sounds/GameLost.mp3'
+    };
+    var elements = {};
+    Object.keys(FILES).forEach(function (name) {
+      var el = new Audio(FILES[name]);
+      el.preload = 'auto';
+      if (LOOPING[name]) el.loop = true;
+      el.volume = VOLUMES[name];
+      elements[name] = el;
+    });
+
+    var muted = false;
+    try { muted = localStorage.getItem('ttt.muted') === '1'; } catch (e) {}
+
+    var audioCtx = null;
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) { try { audioCtx = new Ctx(); } catch (e) { audioCtx = null; } }
+    function resume() { if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(function () {}); }
+
+    // Gapless BG-music path (mirrors the real game): decode the track into a
+    // WebAudio buffer and loop it with a BufferSourceNode — sample-accurate, no
+    // gap. Falls back to the <audio loop> element if fetch/decode is
+    // unavailable (e.g. opened via file://, where the loop has a small gap).
+    var musicGain = null, bgBuffer = null, bgSource = null;
+    if (audioCtx) {
+      musicGain = audioCtx.createGain();
+      musicGain.gain.value = VOLUMES.bgMusic; // 0.18
+      musicGain.connect(audioCtx.destination);
+      if (window.fetch) {
+        fetch(FILES.bgMusic).then(function (r) { return r.arrayBuffer(); })
+          .then(function (buf) { return audioCtx.decodeAudioData(buf); })
+          .then(function (decoded) { bgBuffer = decoded; })
+          .catch(function () { bgBuffer = null; }); // element fallback covers it
+      }
+    }
+
+    function playOneShot(name) {
+      if (muted) return;
+      var base = elements[name]; if (!base) return;
+      var node = base.cloneNode(true);
+      node.volume = VOLUMES[name] || 0.9;
+      var p = node.play(); if (p && p.catch) p.catch(function () {});
+    }
+    function playClick() {
+      if (muted || !audioCtx) return;
+      resume();
+      try {
+        var now = audioCtx.currentTime;
+        var osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(660, now);
+        osc.frequency.exponentialRampToValueAtTime(440, now + 0.05);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.22, now + 0.006);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(now); osc.stop(now + 0.1);
+      } catch (e) {}
+    }
+    var bg = elements.bgMusic;
+    var musicWanted = true;   // this game always wants BG music (on by default)
+    // Returns true if playback is confirmed now (buffer path); false if it went
+    // the element route (whose success is confirmed via the 'playing' event).
+    function startMusic() {
+      musicWanted = true;
+      if (muted) return true;   // stays wanted; will play on unmute
+      if (audioCtx && bgBuffer) {           // gapless buffer loop
+        resume();
+        if (!bgSource) {
+          try {
+            bgSource = audioCtx.createBufferSource();
+            bgSource.buffer = bgBuffer;
+            bgSource.loop = true;
+            bgSource.connect(musicGain);
+            bgSource.start(0);
+          } catch (e) { bgSource = null; return false; }
+        }
+        return true;
+      }
+      bg.muted = false;                     // element fallback (may gap on loop)
+      var p = bg.play(); if (p && p.catch) p.catch(function () {});
+      return false;
+    }
+    function stopMusic() {                   // pause/stop only; keeps intent
+      if (bgSource) { try { bgSource.stop(0); } catch (e) {} try { bgSource.disconnect(); } catch (e) {} bgSource = null; }
+      bg.pause();
+    }
+    function disableMusic() { musicWanted = false; stopMusic(); } // explicit user stop
+    function isMusicPlaying() { return !!bgSource || !bg.paused; }
+    var timerOn = false;
+    function startTimer() { if (muted) return; var t = elements.timerWarning; t.currentTime = 0; var p = t.play(); if (p && p.catch) p.catch(function () {}); timerOn = true; }
+    function stopTimer() { elements.timerWarning.pause(); elements.timerWarning.currentTime = 0; timerOn = false; }
+
+    /* ---------------- Mute button (mirrors uiManager.js) ------------------- */
+    var muteBtn = document.getElementById('mute-btn');
+    var muteIcon = document.getElementById('mute-icon');
+    function renderMute() {
+      muteBtn.classList.toggle('muted', muted);
+      muteBtn.setAttribute('aria-pressed', String(muted));
+      muteIcon.src = muted ? 'assets/icons/speaker_off.svg' : 'assets/icons/speaker_on.svg';
+    }
+    renderMute();
+    muteBtn.addEventListener('click', function () {
+      muted = !muted;
+      try { localStorage.setItem('ttt.muted', muted ? '1' : '0'); } catch (e) {}
+      if (muted) { stopMusic(); stopTimer(); }
+      else { playClick(); if (musicWanted) startMusic(); }  // resume by INTENT, not last playing-state
+      renderMute();
+    });
+
+    /* ---------------- Auto-start BG music on first gesture ----------------- */
+    // Webviews block audible autoplay until a user gesture — and Android Chrome
+    // commonly REJECTS the first play() (esp. on 'pointerdown', which fires
+    // before the tap is fully "activated"). So we RETRY on every gesture,
+    // including placing X/O, until the <audio> element actually fires
+    // 'playing'. This is the fix for "shows started but is silent on Android".
+    var autoEvents = ['pointerdown', 'touchstart', 'touchend', 'click', 'keydown'];
+    function detachAuto() { autoEvents.forEach(function (evt) { window.removeEventListener(evt, autoStart); }); }
+    function autoStart() {
+      resume();
+      if (!musicWanted) { detachAuto(); return; }   // user turned it off explicitly
+      var b = document.getElementById('btn-music'); if (b) b.textContent = '⏹ Toggle BG music';
+      if (muted) { detachAuto(); return; }            // muted: unmute will start it
+      // Buffer path confirms synchronously; element path confirms via 'playing'.
+      if (startMusic()) detachAuto();
+    }
+    bg.addEventListener('playing', detachAuto);        // stop retrying (element path)
+    autoEvents.forEach(function (evt) { window.addEventListener(evt, autoStart, { passive: true }); });
+
+    /* ---------------- Interactive board ------------------------------------ */
+    var cells = Array.prototype.slice.call(document.querySelectorAll('.board-cell'));
+    var current = 'X';
+    function place(cell) {
+      if (cell.dataset.symbol) return;
+      cell.textContent = current;
+      cell.dataset.symbol = current;
+      playOneShot(current === 'X' ? 'xPlace' : 'oPlace');
+      current = current === 'X' ? 'O' : 'X';
+      document.getElementById('turn-text').textContent = current + ' turn';
+      document.getElementById('player-x').classList.toggle('active', current === 'X');
+      document.getElementById('player-o').classList.toggle('active', current === 'O');
+    }
+    cells.forEach(function (cell) { cell.addEventListener('click', function () { place(cell); }); });
+
+    // Click feedback on any interactive control (mirrors gameClient.js).
+    document.addEventListener('pointerdown', function (e) {
+      if (e.target.closest('.board-cell, .mute-btn, .preview-panel button, .preview-toggle')) playClick();
+    });
+
+    /* ---------------- Test panel wiring ------------------------------------ */
+    Array.prototype.slice.call(document.querySelectorAll('.preview-panel [data-sound]')).forEach(function (btn) {
+      btn.addEventListener('click', function () { playOneShot(btn.dataset.sound); });
+    });
+    var btnTimer = document.getElementById('btn-timer');
+    btnTimer.addEventListener('click', function () {
+      if (timerOn) { stopTimer(); btnTimer.textContent = '▶ Timer warning'; }
+      else { startTimer(); btnTimer.textContent = '⏹ Timer warning'; }
+    });
+    var btnMusic = document.getElementById('btn-music');
+    btnMusic.addEventListener('click', function () {
+      if (musicWanted) { disableMusic(); btnMusic.textContent = '▶ Toggle BG music'; }
+      else { startMusic(); btnMusic.textContent = '⏹ Toggle BG music'; }
+    });
+    document.getElementById('btn-reset').addEventListener('click', function () {
+      cells.forEach(function (c) { c.textContent = ''; c.dataset.symbol = ''; c.classList.remove('winning'); });
+      current = 'X';
+      document.getElementById('turn-text').textContent = 'X turn';
+      document.getElementById('player-x').classList.add('active');
+      document.getElementById('player-o').classList.remove('active');
+      schedule();
+    });
+    var panel = document.getElementById('preview-panel');
+    document.getElementById('btn-collapse').addEventListener('click', function () { panel.classList.add('collapsed'); });
+    document.getElementById('preview-toggle').addEventListener('click', function () { panel.classList.remove('collapsed'); });
+
+    // Debug hook for automated testing (harmless in normal use).
+    window.__previewAudio = {
+      musicPlaying: function () { return isMusicPlaying(); },
+      usingBuffer: function () { return !!bgSource; },
+      musicWanted: function () { return musicWanted; },
+      muted: function () { return muted; },
+      clickMute: function () { muteBtn.click(); },
+    };
+
+    measure();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule).catch(function () {});
+  })();
+  </script>
+</body>
+</html>

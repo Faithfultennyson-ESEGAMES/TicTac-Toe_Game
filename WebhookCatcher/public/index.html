@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tic Tac Toe Webhook Catcher</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Webhook Catcher</h1>
+      <p>Tic Tac Toe dispatcher + matchmaking session-closed verification.</p>
+    </div>
+    <div id="health" class="pill">Checking…</div>
+  </header>
+  <main>
+    <section class="panel">
+      <div class="heading">
+        <h2>Sessions</h2>
+        <button id="clear">Clear capture</button>
+      </div>
+      <div id="summary" class="cards"></div>
+    </section>
+    <section class="panel">
+      <div class="heading"><h2>Captured Events</h2><span id="count" class="pill">0</span></div>
+      <div id="events" class="events"></div>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
